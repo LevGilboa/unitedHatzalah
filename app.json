@@ -5,7 +5,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/Effy/excited.png",
-    "scheme": "https",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -30,8 +29,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/Effy/icon.png",
-      "publicPath": "/unitedHatzalah/"
+      "favicon": "./assets/images/Effy/icon.png"
     },
     "plugins": [
       "expo-router",
