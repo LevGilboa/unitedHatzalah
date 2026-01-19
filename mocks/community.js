@@ -1,4 +1,4 @@
-export default MockCards = [
+export default [
   {
     id: 1,
     title: 'פרויקט קהילתי לשיפור המודעות להחייאה',

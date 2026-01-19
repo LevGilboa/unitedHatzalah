@@ -13,10 +13,11 @@ import {
  */
 
 interface AIConfig {
-  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'local';
+  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local';
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
+  zone?: string; // Bright Data Zone name (default: unblocker)
   // Fallback configuration
   fallbackOpenAIKey?: string;
   fallbackOpenAIModel?: string;
@@ -136,7 +137,7 @@ class AIContentProcessor {
       'such', 'that', 'this', 'with', 'from', 'have', 'been', 'were', 'will', 'would',
       'could', 'should', 'there', 'their', 'about', 'which', 'when', 'where', 'what',
     ];
-    
+
     const words = content
       .split(/\s+/)
       .map(w => w.replace(/[.,;:!?()"\[\]{}]/g, '')) // Remove punctuation
@@ -281,13 +282,49 @@ ${badExamplesSection}
       "difficulty": "medium",
       "topic": "נושא מהתוכן",
       "keywords": ["מילת מפתח 1", "מילת מפתח 2"]
+    },
+    {
+      "type": "true-false",
+      "question": "נכון או לא נכון: משפט לבדיקה",
+      "options": ["נכון", "לא נכון"],
+      "correctAnswer": 0,
+      "explanation": "הסבר למה המשפט נכון או לא נכון",
+      "difficulty": "easy",
+      "topic": "נושא מהתוכן",
+      "keywords": ["מילת מפתח"]
     }
   ]
 }
 \`\`\`
 
+חשוב מאוד עבור שאלות true-false:
+- correctAnswer חייב להיות 0 (עבור "נכון") או 1 (עבור "לא נכון")
+- options חייב להיות ["נכון", "לא נכון"]
+
 סוגי תרגילים אפשריים: multiple-choice, true-false, fill-blank
 רמות קושי: easy, medium, hard`;
+
+    // Try Bright Data (if configured as primary)
+    if (this.config.provider === 'brightdata' && this.config.apiKey) {
+      console.log('🟣 Attempting Bright Data API...');
+      const brightDataResult = await this.callBrightDataAPI(prompt, request.contentId, analysis);
+      if (brightDataResult) {
+        console.log('✅ Bright Data API succeeded');
+        return brightDataResult;
+      }
+      console.log('❌ Bright Data API failed');
+
+      // Fallback: Try Groq directly if available
+      const groqFallbackKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY;
+      if (groqFallbackKey) {
+        console.log('🟠 Falling back to direct Groq API...');
+        const groqResult = await this.callGroqAPI(prompt, request.contentId, analysis, groqFallbackKey);
+        if (groqResult) {
+          console.log('✅ Groq API (Fallback) succeeded');
+          return groqResult;
+        }
+      }
+    }
 
     // Try Groq first (if configured as primary) - it's free and fast!
     if (this.config.provider === 'groq' && this.config.apiKey) {
@@ -314,7 +351,7 @@ ${badExamplesSection}
     // Try OpenAI as fallback (or primary if configured)
     const openaiKey = this.config.provider === 'openai' ? this.config.apiKey : this.config.fallbackOpenAIKey;
     const openaiModel = this.config.provider === 'openai' ? this.config.model : this.config.fallbackOpenAIModel;
-    
+
     if (openaiKey) {
       console.log('🟡 Attempting OpenAI API...');
       const openaiResult = await this.callOpenAIAPI(prompt, request.contentId, analysis, openaiKey, openaiModel);
@@ -331,21 +368,128 @@ ${badExamplesSection}
   }
 
   /**
-   * Call Groq API - Free and fast AI!
+   * Call Bright Data API (as Proxy to Groq/LLM)
+   * Uses https://api.brightdata.com/request structure
    */
-  private async callGroqAPI(
+  private async callBrightDataAPI(
     prompt: string,
     contentId: string,
     analysis: any
   ): Promise<GeneratedExercise[] | null> {
     try {
+      const brightDataToken = this.config.apiKey;
+      // We need a target LLM. Since user wanted to replace Groq, we'll try to reach Groq THROUGH Bright Data.
+      // We need the Groq Key for the inner request. We'll try to find it in process.env or fallback.
+      // Note: In a real scenario, we might want to pass the Groq Key explicitly or use a different open model.
+      const groqKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ||
+        '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'; // Fallback to provided key
+
+      const targetUrl = 'https://api.groq.com/openai/v1/chat/completions';
       const model = this.config.model || 'llama-3.3-70b-versatile';
-      
+
+      console.log(`[BrightData] Proxying request to ${targetUrl} via unblocker...`);
+
+      // Construct the inner body for the LLM
+      const innerBody = {
+        model: model,
+        messages: [
+          {
+            role: 'system',
+            content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 4000,
+      };
+
+      // Construct the outer body for Bright Data
+      const brightDataBody = {
+        zone: this.config.zone || 'unblocker',
+        url: targetUrl,
+        format: 'json', // Changed from 'raw' to 'json' to let Bright Data parse response
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json', // Explicitly ask for JSON
+          'Authorization': `Bearer ${groqKey}`
+        },
+        body: JSON.stringify(innerBody)
+      };
+
+      console.log('Sending request to Bright Data with token starting with:', brightDataToken ? brightDataToken.substring(0, 4) + '...' : 'MISSING');
+      console.log('Targeting Zone:', this.config.zone || 'unblocker');
+
+      const response = await fetch('https://api.brightdata.com/request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${brightDataToken}`,
+        },
+        body: JSON.stringify(brightDataBody),
+      });
+
+      console.log('Bright Data Proxy response status:', response.status);
+
+      const rawResponseText = await response.text();
+      console.log('Bright Data raw response (first 500 chars):', rawResponseText.slice(0, 500));
+
+      if (!response.ok) {
+        console.error('Bright Data Proxy error (status not ok):', rawResponseText);
+        return null;
+      }
+
+      if (!rawResponseText || rawResponseText.trim().length === 0) {
+        console.error('Bright Data Proxy returned empty response');
+        return null;
+      }
+
+      // The response body should be the raw response from Groq
+      let data;
+      try {
+        data = JSON.parse(rawResponseText);
+      } catch (e) {
+        console.error('Failed to parse JSON from Bright Data proxy response:', e);
+        return null;
+      }
+
+      // Validate if we got a valid LLM response
+      if (data.error) {
+        console.error('Target API Error via Proxy:', data.error);
+        return null;
+      }
+
+      const responseText = data.choices?.[0]?.message?.content || '';
+      console.log('Bright Data (Groq) response length:', responseText.length);
+      return this.parseExercisesFromResponse(responseText, contentId, analysis);
+
+    } catch (error) {
+      console.error('Bright Data API error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Call Groq API - Free and fast AI!
+   */
+  private async callGroqAPI(
+    prompt: string,
+    contentId: string,
+    analysis: any,
+    apiKeyOverride?: string
+  ): Promise<GeneratedExercise[] | null> {
+    try {
+      const model = this.config.model || 'llama-3.3-70b-versatile';
+      const apiKey = apiKeyOverride || this.config.apiKey;
+
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: model,
@@ -354,9 +498,9 @@ ${badExamplesSection}
               role: 'system',
               content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי.'
             },
-            { 
-              role: 'user', 
-              content: prompt 
+            {
+              role: 'user',
+              content: prompt
             }
           ],
           temperature: 0.8,
@@ -376,7 +520,7 @@ ${badExamplesSection}
       const responseText = data.choices?.[0]?.message?.content || '';
       console.log('Groq response length:', responseText.length);
       return this.parseExercisesFromResponse(responseText, contentId, analysis);
-      
+
     } catch (error) {
       console.error('Groq API error:', error);
       return null;
@@ -393,7 +537,7 @@ ${badExamplesSection}
   ): Promise<GeneratedExercise[] | null> {
     const modelName = this.config.model || 'gemini-2.5-flash';
     const maxRetries = 3;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const response = await fetch(
@@ -435,7 +579,7 @@ ${badExamplesSection}
 
         const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         return this.parseExercisesFromResponse(responseText, contentId, analysis);
-        
+
       } catch (fetchError) {
         console.error(`Gemini attempt ${attempt} error:`, fetchError);
         if (attempt === maxRetries) {
@@ -531,7 +675,7 @@ ${badExamplesSection}
 
       const responseText = data.choices?.[0]?.message?.content || '';
       return this.parseExercisesFromResponse(responseText, contentId, analysis);
-      
+
     } catch (error) {
       console.error('OpenAI API error:', error);
       return null;
@@ -554,12 +698,12 @@ ${badExamplesSection}
         let jsonString = codeBlockMatch[1].trim();
         console.log('Extracted JSON length:', jsonString.length);
         console.log('First 200 chars:', jsonString.substring(0, 200));
-        
+
         // Clean up common JSON issues and control characters
         jsonString = this.cleanJsonString(jsonString);
         console.log('Cleaned JSON length:', jsonString.length);
         console.log('Cleaned JSON first 300 chars:', jsonString.substring(0, 300));
-        
+
         try {
           const parsed = JSON.parse(jsonString);
           if (parsed.exercises && Array.isArray(parsed.exercises)) {
@@ -618,53 +762,26 @@ ${badExamplesSection}
   private cleanJsonString(jsonString: string): string {
     // Remove control characters (except for \n, \r, \t which are allowed in JSON strings)
     jsonString = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-    
-    // Remove trailing commas
-    jsonString = jsonString.replace(/,\s*}/g, '}');
-    jsonString = jsonString.replace(/,\s*]/g, ']');
-    
+
+    // Remove trailing commas using a more robust lookahead which handles objects and arrays
+    jsonString = jsonString.replace(/,(?=\s*[}\]])/g, '');
+
     // Add quotes to unquoted keys
     jsonString = jsonString.replace(/([{,]\s*)(\w+):/g, '$1"$2":');
-    
+
     // Fix common escape issues
     jsonString = jsonString.replace(/\\n/g, '\\\\n'); // Escape literal \n
     jsonString = jsonString.replace(/\\t/g, '\\\\t'); // Escape literal \t
     jsonString = jsonString.replace(/\\r/g, '\\\\r'); // Escape literal \r
-    
+
     // Remove any remaining problematic characters within strings
-    // This is a more aggressive approach for badly formed JSON
     jsonString = jsonString.replace(/"[^"]*[\x00-\x1F\x7F][^"]*"/g, (match) => {
       return match.replace(/[\x00-\x1F\x7F]/g, '');
     });
 
-    // Try to fix incomplete arrays by adding closing brackets
-    // Count opening and closing brackets
-    const openBraces = (jsonString.match(/\{/g) || []).length;
-    const closeBraces = (jsonString.match(/\}/g) || []).length;
-    const openBrackets = (jsonString.match(/\[/g) || []).length;
-    const closeBrackets = (jsonString.match(/\]/g) || []).length;
-
-    // Add missing closing braces
-    for (let i = 0; i < openBraces - closeBraces; i++) {
-      jsonString += '}';
-    }
-
-    // Add missing closing brackets
-    for (let i = 0; i < openBrackets - closeBrackets; i++) {
-      jsonString += ']';
-    }
-
-    // Fix incomplete strings by adding closing quotes
-    const lines = jsonString.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const quoteCount = (line.match(/"/g) || []).length;
-      if (quoteCount % 2 === 1) {
-        // Odd number of quotes, add closing quote
-        lines[i] = line + '"';
-      }
-    }
-    jsonString = lines.join('\n');
+    // NOTE: The original logic for appending missing brackets/braces was removed.
+    // It was too risky and could create invalid JSON, masking the real error.
+    // It is better to let JSON.parse fail and rely on the fallback mechanisms.
 
     return jsonString;
   }
@@ -677,7 +794,7 @@ ${badExamplesSection}
       // Look for exercise objects using regex
       const exerciseRegex = /\{\s*"type"\s*:\s*"[^"]*"\s*,\s*"question"\s*:\s*"[^"]*"(?:\s*,\s*"[^"]*"\s*:\s*[^,}]*)*\}/g;
       const matches = jsonString.match(exerciseRegex);
-      
+
       if (matches && matches.length > 0) {
         const exercises = [];
         for (const match of matches) {
@@ -692,12 +809,12 @@ ${badExamplesSection}
             console.log('Skipping malformed exercise:', match.substring(0, 100));
           }
         }
-        
+
         if (exercises.length > 0) {
           return exercises;
         }
       }
-      
+
       // Fallback: Try to find all question-answer pairs
       const questionRegex = /"question"\s*:\s*"([^"]*)"/g;
       const questions = [];
@@ -705,7 +822,7 @@ ${badExamplesSection}
       while ((match = questionRegex.exec(jsonString)) !== null) {
         questions.push(match[1]);
       }
-      
+
       if (questions.length > 0) {
         // Create basic exercises from questions
         return questions.map((question, index) => ({
@@ -717,11 +834,11 @@ ${badExamplesSection}
           difficulty: 'medium'
         }));
       }
-      
+
     } catch (error) {
       console.error('Failed to extract exercises from malformed JSON:', error);
     }
-    
+
     return null;
   }
 
@@ -883,7 +1000,7 @@ ${badExamplesSection}
     index: number
   ): GeneratedExercise {
     const sentences = content.split(/[.!?]+/).filter((s) => s && s.trim().length > 20);
-    
+
     // Question templates for variety
     const questionTemplates = [
       { template: 'definition', prefix: 'מהי ההגדרה הנכונה של' },
@@ -899,10 +1016,10 @@ ${badExamplesSection}
       { template: 'where', prefix: 'היכן מתבצע' },
       { template: 'how', prefix: 'כיצד פועל' },
     ];
-    
+
     const templateIndex = index % questionTemplates.length;
     const selectedTemplate = questionTemplates[templateIndex];
-    
+
     if (sentences.length === 0) {
       const fallbackOptions = [topic, 'מושג אחר', 'רעיון שונה', 'תפיסה נוספת'];
       const shuffled = this.shuffleOptionsWithAnswer(fallbackOptions, 0);
@@ -919,32 +1036,40 @@ ${badExamplesSection}
         keywords: [topic],
       };
     }
-    
+
     // Pick different sentence based on index
     const sentenceIndex = (index * 7) % sentences.length;
     const baseSentence = sentences[sentenceIndex].trim();
-    
+
     // Extract meaningful words (filter short and common words)
     const commonWords = ['את', 'של', 'על', 'עם', 'לא', 'גם', 'או', 'כי', 'אם', 'הוא', 'היא', 'הם', 'הן', 'זה', 'זו', 'אלה', 'כל', 'רק', 'עוד', 'מה', 'מי', 'איך', 'למה', 'כמה', 'אבל', 'אך', 'לכן', 'משום', 'היה', 'היו', 'יהיה', 'להיות', 'אותו', 'אותה', 'אלו', 'כאשר', 'בין', 'תוך', 'אחרי', 'לפני', 'כמו', 'יותר', 'פחות'];
     const words = baseSentence.split(/\s+/).filter((w) => w && w.length > 3 && !commonWords.includes(w));
-    
+
     // Create varied questions based on template
     let question = '';
     let correctOption = '';
     let distractors: string[] = [];
-    
+
     if (words.length >= 3) {
       const keyWordIndex = Math.floor(Math.random() * Math.min(words.length, 5));
       correctOption = words[keyWordIndex];
-      
+
       // Get other words as distractors
       distractors = words.filter((w, i) => i !== keyWordIndex && w !== correctOption).slice(0, 3);
-      
-      // Fill missing distractors
+
+      // Fill missing distractors with context-aware options
+      const contextDistractors = [
+        `${topic} אחר`,
+        `לא ${correctOption}`,
+        `הפך מ${correctOption}`,
+        'אף אחת מהתשובות',
+        'כל התשובות נכונות',
+        `${subject} - מושג קשור`,
+      ];
       while (distractors.length < 3) {
-        distractors.push(`אפשרות ${distractors.length + 1}`);
+        distractors.push(contextDistractors[distractors.length % contextDistractors.length]);
       }
-      
+
       // Create question based on template type
       switch (selectedTemplate.template) {
         case 'definition':
@@ -981,10 +1106,10 @@ ${badExamplesSection}
       distractors = ['אפשרות א', 'אפשרות ב', 'אפשרות ג'];
       question = `${selectedTemplate.prefix} "${topic}" על פי החומר?`;
     }
-    
+
     const options = [correctOption, ...distractors.slice(0, 3)];
     const shuffled = this.shuffleOptionsWithAnswer(options, 0);
-    
+
     return {
       id: `ex-mc-${index}-${Date.now()}`,
       contentId: '',
@@ -992,7 +1117,7 @@ ${badExamplesSection}
       question,
       options: shuffled.options,
       correctAnswer: shuffled.correctIndex,
-      explanation: `התשובה הנכונה היא "${correctOption}".`,
+      explanation: `התשובה הנכונה היא "${correctOption}". מושג זה מופיע בחומר בהקשר של ${topic} ומתייחס ל${baseSentence ? baseSentence.slice(0, 60) + '...' : subject}.`,
       difficulty,
       topic,
       keywords: [topic, correctOption],
@@ -1004,17 +1129,17 @@ ${badExamplesSection}
    */
   private shuffleOptionsWithAnswer(options: string[], correctIndex: number): { options: string[], correctIndex: number } {
     const correctAnswer = options[correctIndex];
-    
+
     // Fisher-Yates shuffle
     const shuffled = [...options];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    
+
     // Find new position of correct answer
     const newCorrectIndex = shuffled.indexOf(correctAnswer);
-    
+
     return {
       options: shuffled,
       correctIndex: newCorrectIndex
@@ -1032,7 +1157,7 @@ ${badExamplesSection}
     index: number
   ): GeneratedExercise {
     const sentences = content.split(/[.!?]+/).filter((s) => s && s.trim().length > 20);
-    
+
     // Different fill-blank templates
     const templates = [
       { type: 'complete', prefix: 'השלם את המשפט:' },
@@ -1040,9 +1165,9 @@ ${badExamplesSection}
       { type: 'define', prefix: 'השלם את ההגדרה:' },
       { type: 'connect', prefix: 'השלם את הקשר:' },
     ];
-    
+
     const selectedTemplate = templates[index % templates.length];
-    
+
     if (sentences.length === 0) {
       return {
         id: `ex-fb-${index}-${Date.now()}`,
@@ -1056,15 +1181,15 @@ ${badExamplesSection}
         keywords: [topic],
       };
     }
-    
+
     // Use different sentences for variety
     const sentenceIndex = (index * 5 + 3) % sentences.length;
     const sentence = sentences[sentenceIndex].trim();
-    
+
     // Filter common Hebrew words
     const commonWords = ['את', 'של', 'על', 'עם', 'לא', 'גם', 'או', 'כי', 'אם', 'הוא', 'היא', 'הם', 'הן', 'זה', 'זו', 'כל', 'רק', 'עוד', 'היה', 'היו', 'אלה', 'אלו', 'כאשר', 'בין', 'תוך', 'אחרי', 'לפני', 'כמו'];
     const words = sentence.split(/\s+/).filter(w => w && w.length > 3 && !commonWords.includes(w));
-    
+
     if (words.length < 3) {
       return {
         id: `ex-fb-${index}-${Date.now()}`,
@@ -1078,21 +1203,31 @@ ${badExamplesSection}
         keywords: [topic],
       };
     }
-    
+
     // Pick meaningful word to blank out (not first or last)
     const blankIndex = 1 + Math.floor(Math.random() * (words.length - 2));
     const correctAnswer = words[blankIndex];
-    
+
     // Create sentence with blank
     const sentenceWithBlank = sentence.replace(correctAnswer, '_____');
-    
+
+    // Create distractor options from other words in the content
+    const distractorWords = words.filter((w, i) => i !== blankIndex && w !== correctAnswer).slice(0, 3);
+    while (distractorWords.length < 3) {
+      distractorWords.push(`מושג מ${topic}`);
+    }
+    const allOptions = [correctAnswer, ...distractorWords];
+    // Shuffle options
+    const shuffledOptions = allOptions.sort(() => Math.random() - 0.5);
+
     return {
       id: `ex-fb-${index}-${Date.now()}`,
       contentId: '',
       type: 'fill-blank',
       question: `${selectedTemplate.prefix} ${sentenceWithBlank}`,
-      correctAnswer,
-      explanation: `המילה החסרה היא "${correctAnswer}".`,
+      options: shuffledOptions, // Provide options as hints
+      correctAnswer: shuffledOptions.indexOf(correctAnswer),
+      explanation: `המילה החסרה היא "${correctAnswer}". המשפט המלא מופיע בחומר: "${sentence.slice(0, 70)}..."`,
       difficulty,
       topic,
       keywords: [topic, correctAnswer],
@@ -1110,10 +1245,10 @@ ${badExamplesSection}
     index: number
   ): GeneratedExercise {
     const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 15);
-    const options = sentences.slice(index, index + 3).map((s, i) => 
+    const options = sentences.slice(index, index + 3).map((s, i) =>
       `${i + 1}. ${s.trim().slice(0, 50)}...`
     );
-    
+
     return {
       id: `ex-mt-${index}-${Date.now()}`,
       contentId: '',
@@ -1143,10 +1278,10 @@ ${badExamplesSection}
     index: number
   ): GeneratedExercise {
     const sentences = content.split(/[.!?]+/).filter((s) => s && s.trim().length > 20);
-    
+
     // Alternate between true and false questions
     const shouldBeFalse = index % 2 === 1;
-    
+
     // Templates for variety
     const trueTemplates = [
       'נכון או לא נכון:',
@@ -1154,27 +1289,28 @@ ${badExamplesSection}
       'קבע אם הטענה הבאה נכונה:',
       'בדוק את נכונות הטענה:',
     ];
-    
+
     const template = trueTemplates[index % trueTemplates.length];
-    
+
     if (sentences.length === 0) {
       return {
         id: `ex-tf-${index}-${Date.now()}`,
         contentId: '',
         type: 'true-false',
         question: `${template} התוכן עוסק בנושא ${topic} בתחום ${subject}`,
-        correctAnswer: 'נכון',
-        explanation: `המשפט נכון.`,
+        options: ['נכון', 'לא נכון'],
+        correctAnswer: 0, // 0 = נכון
+        explanation: `המשפט נכון - התוכן אכן עוסק בנושא ${topic}.`,
         difficulty,
         topic,
         keywords: [topic],
       };
     }
-    
+
     // Pick different sentence
     const sentenceIndex = (index * 3 + 2) % sentences.length;
     let statement = sentences[sentenceIndex].trim();
-    
+
     if (shouldBeFalse) {
       // Create a false statement by modifying the original
       const modifications = [
@@ -1185,8 +1321,11 @@ ${badExamplesSection}
         { find: /יותר/g, replace: 'פחות' },
         { find: /גדול/g, replace: 'קטן' },
         { find: /חשוב/g, replace: 'לא חשוב' },
+        { find: /נכון/g, replace: 'שגוי' },
+        { find: /מותר/g, replace: 'אסור' },
+        { find: /כן/g, replace: 'לא' },
       ];
-      
+
       let modified = false;
       for (const mod of modifications) {
         if (mod.find.test(statement)) {
@@ -1195,34 +1334,36 @@ ${badExamplesSection}
           break;
         }
       }
-      
-      // If no modification was made, add "לא" or change meaning
+
+      // If no modification was made, add negation
       if (!modified) {
         if (statement.length > 30) {
-          statement = statement.slice(0, 30) + ' - זה לא קשור ל' + subject;
+          statement = statement.slice(0, 30) + ' - זו טעות נפוצה בנושא ' + topic;
         }
       }
-      
+
       return {
         id: `ex-tf-${index}-${Date.now()}`,
         contentId: '',
         type: 'true-false',
         question: `${template} ${statement}`,
-        correctAnswer: 'לא נכון',
-        explanation: `המשפט אינו נכון על פי החומר.`,
+        options: ['נכון', 'לא נכון'],
+        correctAnswer: 1, // 1 = לא נכון
+        explanation: `המשפט אינו נכון - על פי החומר, המידע הנכון שונה ממה שנאמר בשאלה.`,
         difficulty,
         topic,
         keywords: [topic],
       };
     }
-    
+
     return {
       id: `ex-tf-${index}-${Date.now()}`,
       contentId: '',
       type: 'true-false',
       question: `${template} ${statement}`,
-      correctAnswer: 'נכון',
-      explanation: `המשפט נכון על פי החומר.`,
+      options: ['נכון', 'לא נכון'],
+      correctAnswer: 0, // 0 = נכון
+      explanation: `המשפט נכון - זה מופיע בחומר: "${statement.slice(0, 50)}..."`,
       difficulty,
       topic,
       keywords: [topic],
@@ -1242,7 +1383,7 @@ ${badExamplesSection}
     const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 20);
     const sentenceIndex = (index * 4) % sentences.length;
     const contextSentence = sentences[sentenceIndex].trim();
-    
+
     return {
       id: `ex-sa-${index}-${Date.now()}`,
       contentId: '',
@@ -1268,7 +1409,7 @@ ${badExamplesSection}
   ): GeneratedExercise {
     const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 15);
     const options = sentences.slice(index, index + 4).map((s, i) => s.trim());
-    
+
     return {
       id: `ex-or-${index}-${Date.now()}`,
       contentId: '',

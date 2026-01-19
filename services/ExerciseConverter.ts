@@ -91,7 +91,20 @@ export function convertExercise(exercise: GeneratedExercise, index: number): Exe
   // For true-false type
   if (exercise.type === 'true-false') {
     const answer = exercise.correctAnswer;
-    const correctIndex = answer === 'נכון' || answer === 0 || answer === 'true' || answer === true ? 0 : 1;
+    // Handle all possible formats from AI:
+    // - String: "true", "false", "נכון", "לא נכון"
+    // - Number: 0, 1
+    // Index 0 = "נכון" (true), Index 1 = "לא נכון" (false)
+    const normalizedAnswer = String(answer).toLowerCase().trim();
+    const isTrueAnswer =
+      answer === 0 ||
+      normalizedAnswer === 'true' ||
+      normalizedAnswer === 'נכון' ||
+      normalizedAnswer === '0';
+    const correctIndex = isTrueAnswer ? 0 : 1;
+
+    console.log(`[TrueFalse] answer="${answer}", normalizedAnswer="${normalizedAnswer}", isTrueAnswer=${isTrueAnswer}, correctIndex=${correctIndex}`);
+
     return {
       id: exercise.id || `ex-${index}-${Date.now()}`,
       type: 'true-false',
@@ -108,8 +121,8 @@ export function convertExercise(exercise: GeneratedExercise, index: number): Exe
 
   if (exercise.type === 'multiple-choice' && exercise.options) {
     answers = exercise.options;
-    correct = typeof exercise.correctAnswer === 'number' 
-      ? exercise.correctAnswer 
+    correct = typeof exercise.correctAnswer === 'number'
+      ? exercise.correctAnswer
       : 0;
   } else if (exercise.options) {
     answers = exercise.options;
@@ -151,7 +164,7 @@ export function createLessonFromStudySet(
 ): Omit<Lesson, 'id'> & { id?: string } {
   // ALWAYS store originalContent if available - exercises will be generated dynamically by AI
   // We don't store pre-generated exercises anymore - AI creates fresh ones each time
-  
+
   return {
     id: `lesson-${studySetId}-${Date.now()}`,
     name: studySetTitle,

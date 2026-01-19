@@ -52,7 +52,7 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "baseUrl": "/unitedHatzalah/"
+      "baseUrl": "/unitedHatzalah"
     },
     "extra": {
       "router": {

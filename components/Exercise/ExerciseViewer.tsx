@@ -84,6 +84,8 @@ export default function ExerciseViewer({
   const [feedbackGiven, setFeedbackGiven] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [openFeedbackText, setOpenFeedbackText] = useState('');
+  const [selectedReason, setSelectedReason] = useState<FeedbackReason | null>(null);
 
   const user = useAuthStore((state) => state.user);
   const { submitQuestionFeedback } = useContentAndStudyStore();

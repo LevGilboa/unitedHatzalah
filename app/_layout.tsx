@@ -28,13 +28,21 @@ export default function RootLayout() {
   useEffect(() => {
     // Use Groq API for AI-powered exercise generation (free!)
     // Get API keys from environment variables
+    // Get API keys from environment variables
+    const brightDataKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_BRIGHT_DATA_API_KEY ?? (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_API_KEY ?? '';
+    const brightDataZone = Constants.expoConfig?.extra?.EXPO_PUBLIC_BRIGHT_DATA_ZONE ?? (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_ZONE ?? '';
     const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
 
-    // Debug logging to help local dev — do not log full key in production
-    console.log('[AI] Groq API key present:', !!groqApiKey);
-
-    // Initialize AI processor with Groq
-    if (groqApiKey) {
+    // Initialize AI processor
+    if (brightDataKey) {
+      console.log('[AI] initializeAIProcessor -> provider: brightdata');
+      initializeAIProcessor({
+        provider: 'brightdata',
+        apiKey: brightDataKey,
+        zone: brightDataZone || 'unblocker',
+        model: 'llama-3.3-70b-versatile',
+      });
+    } else if (groqApiKey) {
       console.log('[AI] initializeAIProcessor -> provider: groq');
       initializeAIProcessor({
         provider: 'groq',
@@ -59,10 +67,10 @@ export default function RootLayout() {
             try {
               const newCall = change.doc.data();
               if (!newCall || !newCall.skill) return;
-              
-              const userBadges = user.badges || [];
+
+              const userBadges = user?.badges || [];
               const hasBadge = userBadges.some((badge) => badge?.title === newCall.skill);
-               if (!hasBadge) return;
+              if (!hasBadge) return;
 
               const message = `קריאה חדשה לעזרה ${newCall.skill || ''} במיקום: ${newCall.location || 'לא ידוע'}`;
               setModalMessage(message);
@@ -86,7 +94,7 @@ export default function RootLayout() {
         console.error('Firestore listener error:', error);
       }
     );
-    
+
     return () => unsubscribe();
   }, [user]);
 
