@@ -45,10 +45,14 @@ export default function ChoiceExercise({
   }, [exercise.id]);
 
   const handleAnswerPress = (index: number) => {
-    const isCorrect = index === correct;
+    console.log(`[ChoiceExercise] index=${index}, correct=${correct}, typeof correct=${typeof correct}, index===correct: ${index === correct}`);
+
+    // Ensure correct comparison works for both number and string
+    const correctNum = typeof correct === 'number' ? correct : parseInt(String(correct), 10);
+    const isCorrect = index === correctNum;
 
     if (!isCorrect) {
-      setCorrectAnswer(answers[correct as number]);
+      setCorrectAnswer(answers[correctNum]);
       setModalVisible(true);
     }
 
@@ -102,15 +106,15 @@ export default function ChoiceExercise({
       const userAnswer = fillBlankAnswer.trim().toLowerCase();
       const correctAnswerStr = String(correct).trim().toLowerCase();
       const isCorrect = userAnswer === correctAnswerStr;
-      
+
       setFillBlankCorrect(isCorrect);
       setFillBlankSubmitted(true);
-      
+
       if (!isCorrect) {
         setCorrectAnswer(String(correct));
         setModalVisible(true);
       }
-      
+
       setTimeout(() => {
         onAnswerSelected(isCorrect);
       }, isCorrect ? 500 : 0);
@@ -124,7 +128,7 @@ export default function ChoiceExercise({
     try {
       const processor = getAIProcessor();
       const config = (processor as any).config;
-      
+
       if (!config?.apiKey || config.provider === 'local') {
         return false; // No AI available, rely on exact match
       }
@@ -139,7 +143,7 @@ export default function ChoiceExercise({
 החזר רק: "כן" או "לא"`;
 
       let response;
-      
+
       if (config.provider === 'groq') {
         response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
@@ -177,7 +181,7 @@ export default function ChoiceExercise({
 
       const data = await response.json();
       let aiResponse = '';
-      
+
       if (config.provider === 'groq') {
         aiResponse = data.choices?.[0]?.message?.content || '';
       } else {
@@ -197,7 +201,7 @@ export default function ChoiceExercise({
     return (
       <View style={styles.container}>
         <Text style={styles.questionText}>{question}</Text>
-        
+
         {subQuestion && (
           <Text style={styles.subQuestionText}>{subQuestion}</Text>
         )}
@@ -216,12 +220,12 @@ export default function ChoiceExercise({
             editable={!fillBlankSubmitted && !isCheckingAnswer}
             textAlign="right"
           />
-          
+
           {/* Attempts indicator */}
           {!fillBlankSubmitted && attemptsLeft < 2 && (
             <Text style={styles.attemptsText}>נותרו {attemptsLeft} ניסיונות</Text>
           )}
-          
+
           {/* Submit button or loading indicator */}
           {!fillBlankSubmitted && (
             isCheckingAnswer ? (
@@ -273,7 +277,7 @@ export default function ChoiceExercise({
     return (
       <View style={styles.container}>
         <Text style={styles.questionText}>{question}</Text>
-        
+
         {subQuestion && (
           <Text style={styles.subQuestionText}>{subQuestion}</Text>
         )}
@@ -289,7 +293,7 @@ export default function ChoiceExercise({
           >
             <Text style={styles.trueFalseText}>✓ נכון</Text>
           </Pressable>
-          
+
           <Pressable
             style={({ pressed }) => [
               styles.trueFalseButton,
@@ -388,7 +392,7 @@ export default function ChoiceExercise({
               <Text style={styles.correctAnswerText}>{correctAnswer}</Text>
             ) : (
               <Image
-                source={{ uri: correctAnswer}}
+                source={{ uri: correctAnswer }}
                 style={styles.robotImage}
               />
             )}

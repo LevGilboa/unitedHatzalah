@@ -27,22 +27,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Use Groq API for AI-powered exercise generation (free!)
-    // Get API keys from environment variables
-    // Get API keys from environment variables
-    const brightDataKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_BRIGHT_DATA_API_KEY ?? (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_API_KEY ?? '';
-    const brightDataZone = Constants.expoConfig?.extra?.EXPO_PUBLIC_BRIGHT_DATA_ZONE ?? (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_ZONE ?? '';
+    // Get API key from environment variables
     const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
 
     // Initialize AI processor
-    if (brightDataKey) {
-      console.log('[AI] initializeAIProcessor -> provider: brightdata');
-      initializeAIProcessor({
-        provider: 'brightdata',
-        apiKey: brightDataKey,
-        zone: brightDataZone || 'unblocker',
-        model: 'llama-3.3-70b-versatile',
-      });
-    } else if (groqApiKey) {
+    if (groqApiKey) {
       console.log('[AI] initializeAIProcessor -> provider: groq');
       initializeAIProcessor({
         provider: 'groq',

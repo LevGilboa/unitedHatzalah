@@ -304,28 +304,6 @@ ${badExamplesSection}
 סוגי תרגילים אפשריים: multiple-choice, true-false, fill-blank
 רמות קושי: easy, medium, hard`;
 
-    // Try Bright Data (if configured as primary)
-    if (this.config.provider === 'brightdata' && this.config.apiKey) {
-      console.log('🟣 Attempting Bright Data API...');
-      const brightDataResult = await this.callBrightDataAPI(prompt, request.contentId, analysis);
-      if (brightDataResult) {
-        console.log('✅ Bright Data API succeeded');
-        return brightDataResult;
-      }
-      console.log('❌ Bright Data API failed');
-
-      // Fallback: Try Groq directly if available
-      const groqFallbackKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY;
-      if (groqFallbackKey) {
-        console.log('🟠 Falling back to direct Groq API...');
-        const groqResult = await this.callGroqAPI(prompt, request.contentId, analysis, groqFallbackKey);
-        if (groqResult) {
-          console.log('✅ Groq API (Fallback) succeeded');
-          return groqResult;
-        }
-      }
-    }
-
     // Try Groq first (if configured as primary) - it's free and fast!
     if (this.config.provider === 'groq' && this.config.apiKey) {
       console.log('🟢 Attempting Groq API...');
