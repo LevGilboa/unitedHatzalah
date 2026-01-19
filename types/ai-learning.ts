@@ -1,6 +1,6 @@
 // Types for AI-powered educational platform
 
-export type ExerciseType = 
+export type ExerciseType =
   | 'multiple-choice'
   | 'fill-blank'
   | 'matching'
@@ -105,6 +105,7 @@ export interface AIProcessingRequest {
   preferredExerciseTypes: ExerciseType[];
   targetDifficulty: DifficultyLevel[];
   numberOfExercises: number;
+  previousQuestions?: string[]; // Questions already asked to prevent repetition
 }
 
 export interface AIProcessingResponse {

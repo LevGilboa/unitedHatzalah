@@ -50,7 +50,7 @@ export default function StudySet() {
       hasOriginalContent: !!currentSet?.originalContent,
     });
     console.log('study-set: generatedExercises.length =', generatedExercises.length, 'isGenerating =', isGenerating);
-    
+
     const generateNewExercises = async () => {
       // If no originalContent, use stored exercises directly
       if (!currentSet?.originalContent) {
@@ -60,21 +60,25 @@ export default function StudySet() {
         }
         return;
       }
-      
+
       if (!user) {
         // If no user, just use stored exercises
         setGeneratedExercises(currentSet.exercises || []);
         return;
       }
-      
+
       setIsGenerating(true);
       setGenerationError(null);
-      
+
       try {
         // Fetch good examples to improve AI generation
         const goodExamples = await fetchGoodQuestionExamples(currentSet.subject, 5);
-        
+
         const processor = getAIProcessor();
+
+        // Get previous questions from stored exercises to avoid repetition
+        const previousQuestions = currentSet.exercises?.map(ex => ex.question) || [];
+
         const response = await processor.processContent({
           contentId: currentSet.contentId,
           userId: user.email || '',
@@ -89,6 +93,7 @@ export default function StudySet() {
           ],
           targetDifficulty: ['easy', 'medium', 'hard'],
           numberOfExercises: 10,
+          previousQuestions: previousQuestions, // Pass previous questions to avoid repetition
         }, goodExamples);
 
         if (response.exercises && response.exercises.length > 0) {
@@ -302,7 +307,7 @@ export default function StudySet() {
             style={[
               styles.nextButton,
               currentExerciseIndex === exercises.length - 1 &&
-                styles.finishButton,
+              styles.finishButton,
             ]}
             onPress={handleNext}
           >

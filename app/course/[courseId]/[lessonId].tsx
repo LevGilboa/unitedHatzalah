@@ -33,7 +33,7 @@ export default function LessonScreen() {
       console.log('Fetched lesson:', fetchedLesson);
       if (fetchedLesson) {
         setLesson(fetchedLesson);
-        
+
         // ALWAYS generate new exercises if we have originalContent
         // This ensures fresh, unique questions each time
         if (fetchedLesson.originalContent) {
@@ -55,12 +55,16 @@ export default function LessonScreen() {
 
   const generateExercises = async (lessonData: Lesson) => {
     if (!lessonData.originalContent) return;
-    
+
     setIsGenerating(true);
     setGenerationError(null);
-    
+
     try {
       const processor = getAIProcessor();
+
+      // Get previous questions from stored exercises to avoid repetition
+      const previousQuestions = lessonData.exercises?.map(ex => ex.question) || [];
+
       const response = await processor.processContent({
         contentId: lessonData.id,
         userId: 'lesson-user',
@@ -70,6 +74,7 @@ export default function LessonScreen() {
         preferredExerciseTypes: ['multiple-choice', 'true-false'],
         targetDifficulty: ['easy', 'medium', 'hard'],
         numberOfExercises: 5,
+        previousQuestions: previousQuestions, // Pass previous questions to avoid repetition
       });
 
       if (response.exercises && response.exercises.length > 0) {
@@ -107,7 +112,7 @@ export default function LessonScreen() {
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>{generationError || 'אין תרגילים זמינים לשיעור זה'}</Text>
         <Text style={styles.errorSubtext}>יתכן שהקורס נוצר לפני עדכון המערכת</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
             // Go back to course page
