@@ -2,6 +2,13 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Code Modification Status ✅
+
+**Question**: האם אני יכול לשנות את הקוד? (Can I change the code?)  
+**Answer**: כן! (Yes!) - Code changes are fully supported and working.
+
+See `constants/CodeChangeConfirmation.ts` for demonstration.
+
 ## Get started
 
 1. Install dependencies
