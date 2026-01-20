@@ -65,32 +65,8 @@ export default function Learning() {
           </View>
         )}
 
-        {/* Firebase Courses Section */}
-        {courses && courses.length > 0 && (
-          <View style={styles.section}>
-            {localCourses.length > 0 && (
-              <Text style={styles.sectionTitle}>קורסים כלליים</Text>
-            )}
-            {courses.map((course) => {
-              // Skip specific course
-              if (course.id === "RyptAMiZquWHcghAmgOW") return null;
-              
-              // Check if it's a custom course (has coverColor and isCustom)
-              const customCourse = course as any;
-              return (
-                <CourseCard
-                  key={course.id}
-                  id={course.id}
-                  title={course.title}
-                  description={course.description}
-                  image={course.image}
-                  coverColor={customCourse.coverColor}
-                  isCustom={customCourse.isCustom}
-                />
-              );
-            })}
-          </View>
-        )}
+        {/* Firebase Courses Section - HIDDEN */}
+        {/* Users must upload files first to create courses - no default courses */}
 
         {/* Empty State */}
         {allCourses.length === 0 && (

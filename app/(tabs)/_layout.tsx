@@ -110,14 +110,11 @@ export default function TabLayout() {
             ),
           }}
         />
-        {/* SOS (emergency) Tab */}
+        {/* SOS (emergency) Tab - HIDDEN */}
         <Tabs.Screen
           name="emergency"
           options={{
-            title: 'ראשי',
-            tabBarIcon: ({ color }) => (
-              <MaterialIcons name="sos" size={24} color={color} />
-            ),
+            href: null,
           }}
         />
       </Tabs>

@@ -19,8 +19,7 @@ export default function CourseCard({ id, title, description, image, coverColor, 
     const addItem = useArrayStore((state) => state.addItem);
     
     const handlePress = () => {
-        if(id == 'F4wA3R7V0dIzb7ya2NJ4') addItem('Fire')
-        else if(id.startsWith('local-course-')) {
+        if(id.startsWith('local-course-')) {
             // Custom course, no special item
         }
         else addItem('CPR');
