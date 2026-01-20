@@ -44,6 +44,8 @@ jobs:
         run: rm -rf dist
       - name: Build
         run: npm run build:web
+        env:
+          NODE_ENV: production
       - name: Create .nojekyll file
         run: touch dist/.nojekyll
       - name: Upload artifact
