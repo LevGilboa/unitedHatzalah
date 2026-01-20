@@ -17,7 +17,7 @@ const testCapability = {
   enabled: true,
   message: 'Code changes are fully supported',
   demonstratedBy: 'Adding new utility file',
-  date: '2026-01-20',
+  date: '2026-01-20', // Intentionally hardcoded to mark demonstration date
 };
 
 console.log('✅ confirmCodeChange() result:');

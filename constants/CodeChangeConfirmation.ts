@@ -20,9 +20,11 @@ export const confirmCodeChange = (): { hebrew: string; english: string } => {
 
 /**
  * Gets the timestamp of when this demonstration was created
+ * This marks the moment when code change capability was confirmed
  * @returns ISO timestamp string
  */
 export const getChangeTimestamp = (): string => {
+  // This is intentionally hardcoded to mark when this demonstration was created
   return new Date('2026-01-20T07:09:00Z').toISOString();
 };
 
