@@ -29,7 +29,6 @@ export default function MyContent() {
     studySets,
     localStudySets,
     loading,
-    error,
     fetchUserContents,
     fetchUserStudySets,
     deleteContent,
@@ -234,7 +233,7 @@ export default function MyContent() {
         <View style={styles.detailRow}>
           <Ionicons name="checkmark-circle" size={14} color={Colors.gray} />
           <Text style={styles.detailText}>
-            {item.completedExercises || 0} / {item.totalExercises} הושלמו
+            נענו {item.completedExercises || 0} מתוך {item.totalExercises}
           </Text>
         </View>
         <View style={styles.detailRow}>
@@ -258,19 +257,19 @@ export default function MyContent() {
 
       <View style={styles.cardActions}>
         <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push(`/study-set?setId=${item.id}`)}
-        >
-          <Ionicons name="play-circle" size={18} color={Colors.accent} />
-          <Text style={styles.actionButtonText}>המשך לימוד</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={[styles.actionButton, styles.deleteButton]}
           onPress={() => handleDeleteStudySet(item.id, item.title)}
         >
           <Ionicons name="trash" size={18} color="#f44336" />
           <Text style={[styles.actionButtonText, styles.deleteButtonText]}>מחק</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push(`/study-set?setId=${item.id}`)}
+        >
+          <Ionicons name="play-circle" size={18} color={Colors.accent} />
+          <Text style={styles.actionButtonText}>ללמוד</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -346,16 +345,6 @@ export default function MyContent() {
           >
             <Ionicons name="cloud-upload" size={20} color="white" />
             <Text style={styles.emptyButtonText}>העלה קובץ</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {error && (
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={24} color="#f44336" />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadContent}>
-            <Text style={styles.retryButtonText}>נסה שוב</Text>
           </TouchableOpacity>
         </View>
       )}

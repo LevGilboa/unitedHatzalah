@@ -119,7 +119,7 @@ export interface AIProcessingResponse {
 
 // Question Feedback Types for AI Improvement
 export type FeedbackRating = 'good' | 'bad';
-export type FeedbackReason = 'unclear' | 'too-easy' | 'too-hard' | 'wrong-answer' | 'not-relevant' | 'other';
+export type FeedbackReason = 'unclear' | 'too-easy' | 'too-hard' | 'wrong-answer' | 'not-relevant' | 'repetitive' | 'bad-reading' | 'other';
 
 export interface QuestionFeedback {
   id: string;

@@ -24,14 +24,20 @@ export default function StudySet() {
   const router = useRouter();
   const { setId } = useLocalSearchParams();
   const user = useAuthStore((state) => state.user);
-  const { currentSet, fetchStudySet, fetchGoodQuestionExamples, loading } = useContentAndStudyStore();
+  const isGuest = useAuthStore((state) => state.isGuest);
+  const { currentSet, fetchStudySet, fetchGoodQuestionExamples, submitQuestionFeedback, updateStudySet, loading } = useContentAndStudyStore();
 
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
+  const [correctAnswers, setCorrectAnswers] = useState<Record<string, boolean>>({});
+  const [skippedQuestions, setSkippedQuestions] = useState<Set<string>>(new Set());
+  const [reportedRepetitive, setReportedRepetitive] = useState<Set<string>>(new Set());
+  const [badReadingCount, setBadReadingCount] = useState(0);
   const [showExplanation, setShowExplanation] = useState(false);
   const [generatedExercises, setGeneratedExercises] = useState<GeneratedExercise[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [showFinalScore, setShowFinalScore] = useState(false);
 
   // First, load the study set metadata
   useEffect(() => {
@@ -71,8 +77,10 @@ export default function StudySet() {
       setGenerationError(null);
 
       try {
-        // Fetch good examples to improve AI generation
+        // Fetch good examples and bad examples (including repetitive) to improve AI generation
+        const { fetchBadQuestionExamples } = useContentAndStudyStore.getState();
         const goodExamples = await fetchGoodQuestionExamples(currentSet.subject, 5);
+        const badExamples = await fetchBadQuestionExamples(currentSet.subject, 10); // Include repetitive
 
         const processor = getAIProcessor();
 
@@ -94,7 +102,7 @@ export default function StudySet() {
           targetDifficulty: ['easy', 'medium', 'hard'],
           numberOfExercises: 10,
           previousQuestions: previousQuestions, // Pass previous questions to avoid repetition
-        }, goodExamples);
+        }, goodExamples, badExamples);
 
         if (response.exercises && response.exercises.length > 0) {
           setGeneratedExercises(response.exercises);
@@ -119,11 +127,9 @@ export default function StudySet() {
 
   if (loading || isGenerating) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.accent} />
-        <Text style={styles.loadingText}>
-          {isGenerating ? 'מייצר שאלות חדשות...' : 'טוען תרגילים...'}
-        </Text>
+        <Text style={styles.loadingText}>טוען...</Text>
       </View>
     );
   }
@@ -139,9 +145,9 @@ export default function StudySet() {
           </Text>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() => router.push('/(tabs)/upload')}
           >
-            <Text style={styles.backButtonText}>חזור</Text>
+            <Text style={styles.backButtonText}>לדף ההעלאה</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -165,22 +171,203 @@ export default function StudySet() {
       setCurrentExerciseIndex(currentExerciseIndex + 1);
       setShowExplanation(false);
     } else {
-      // Finished all exercises
-      Alert.alert(
-        'כל הכבוד! 🎉',
-        `סיימת ${exercises.length} תרגילים בהצלחה!`,
-        [
-          {
-            text: 'חזור לבית',
-            onPress: () => router.back(),
-          },
-          {
-            text: 'חזור לתחום',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+      // Finished all exercises - show score
+      setShowFinalScore(true);
     }
+  };
+
+  const handleSkip = () => {
+    // Mark current question as skipped
+    setSkippedQuestions(prev => new Set(prev).add(currentExercise.id));
+    // Move to next question
+    if (currentExerciseIndex < exercises.length - 1) {
+      setCurrentExerciseIndex(currentExerciseIndex + 1);
+      setShowExplanation(false);
+    } else {
+      // Finished all exercises - show score
+      setShowFinalScore(true);
+    }
+  };
+
+  const handleReportRepetitive = async () => {
+    // Mark question as reported
+    setReportedRepetitive(prev => new Set(prev).add(currentExercise.id));
+    
+    // Submit feedback to Firebase so AI can learn to avoid similar questions
+    if (user) {
+      try {
+        await submitQuestionFeedback({
+          exerciseId: currentExercise.id,
+          userId: user.email || '',
+          rating: 'bad',
+          reason: 'repetitive',
+          questionText: currentExercise.question,
+          questionType: currentExercise.type,
+          subject: currentSet?.subject || '',
+        });
+        console.log('Repetitive question reported:', currentExercise.question);
+      } catch (error) {
+        console.error('Error submitting repetitive feedback:', error);
+      }
+    }
+    
+    // Show brief confirmation
+    Alert.alert('🔄 דווח', 'תודה! השאלה סומנה כחזרתית ולא תופיע שוב', [{ text: 'אוקי' }]);
+    
+    // Skip to next question (like skip behavior)
+    setSkippedQuestions(prev => new Set(prev).add(currentExercise.id));
+    if (currentExerciseIndex < exercises.length - 1) {
+      setCurrentExerciseIndex(currentExerciseIndex + 1);
+      setShowExplanation(false);
+    } else {
+      setShowFinalScore(true);
+    }
+  };
+
+  // Function to regenerate exercises from content
+  const regenerateExercises = async () => {
+    if (!currentSet?.originalContent) {
+      window.alert('אין תוכן מקורי לקריאה מחדש');
+      return;
+    }
+
+    // Save current exercises in case regeneration fails
+    const previousExercises = [...generatedExercises];
+    
+    // Get all previous questions to avoid them
+    const previousQuestions = previousExercises.map(ex => ex.question);
+    
+    setIsGenerating(true);
+    setGenerationError(null);
+    setBadReadingCount(0); // Reset counter
+    setCurrentExerciseIndex(0);
+    setShowExplanation(false);
+    setSkippedQuestions(new Set()); // Reset skipped
+    setUserAnswers({}); // Reset answers
+    setCorrectAnswers({}); // Reset correct answers
+
+    try {
+      const { fetchBadQuestionExamples } = useContentAndStudyStore.getState();
+      const goodExamples = await fetchGoodQuestionExamples(currentSet.subject, 5);
+      const badExamples = await fetchBadQuestionExamples(currentSet.subject, 10);
+
+      const processor = getAIProcessor();
+      const userId = user?.email || `guest-${Date.now()}`;
+
+      console.log('Regenerating with previousQuestions:', previousQuestions.length);
+
+      const response = await processor.processContent({
+        contentId: currentSet.contentId,
+        userId: userId,
+        title: currentSet.title,
+        content: currentSet.originalContent,
+        subject: currentSet.subject,
+        preferredExerciseTypes: [
+          'multiple-choice',
+          'fill-blank',
+          'true-false',
+          'matching',
+        ],
+        targetDifficulty: ['easy', 'medium', 'hard'],
+        numberOfExercises: 10,
+        previousQuestions: previousQuestions, // Pass ALL previous questions to avoid them
+        forceNewQuestions: true, // Flag to tell AI to create completely different questions
+      }, goodExamples, badExamples);
+
+      if (response.exercises && response.exercises.length > 0) {
+        console.log('New exercises generated:', response.exercises.length);
+        setGeneratedExercises(response.exercises);
+        window.alert('✅ השאלות נוצרו מחדש!');
+      } else {
+        // Restore previous exercises
+        setGeneratedExercises(previousExercises);
+        setGenerationError('לא הצלחנו ליצור שאלות חדשות');
+        window.alert('לא הצלחנו ליצור שאלות חדשות. ממשיכים עם השאלות הקיימות.');
+      }
+    } catch (error) {
+      console.error('Error regenerating exercises:', error);
+      // Restore previous exercises
+      setGeneratedExercises(previousExercises);
+      setGenerationError('שגיאה בקריאה מחדש של הקובץ');
+      window.alert('שגיאה בקריאה מחדש. ממשיכים עם השאלות הקיימות.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleReportBadReading = async () => {
+    const newCount = badReadingCount + 1;
+    console.log('handleReportBadReading called! Count:', newCount);
+    setBadReadingCount(newCount);
+
+    // Submit feedback silently
+    if (user) {
+      try {
+        await submitQuestionFeedback({
+          exerciseId: currentExercise.id,
+          userId: user.email || '',
+          rating: 'bad',
+          reason: 'bad-reading',
+          questionText: currentExercise.question,
+          questionType: currentExercise.type,
+          subject: currentSet?.subject || '',
+        });
+      } catch (error) {
+        console.error('Error submitting bad reading feedback:', error);
+      }
+    }
+
+    // Skip current question
+    setSkippedQuestions(prev => new Set(prev).add(currentExercise.id));
+
+    // After 3 reports, offer to re-read the file
+    if (newCount >= 3) {
+      const shouldRegenerate = window.confirm(
+        'דיווחת 3 פעמים על קריאה שגויה.\nהאם לנסות לקרוא את הקובץ מחדש וליצור שאלות חדשות?'
+      );
+      
+      if (shouldRegenerate) {
+        regenerateExercises();
+      } else {
+        // Move to next question
+        if (currentExerciseIndex < exercises.length - 1) {
+          setCurrentExerciseIndex(currentExerciseIndex + 1);
+          setShowExplanation(false);
+        } else {
+          setShowFinalScore(true);
+        }
+      }
+    } else {
+      // Just skip to next question silently (like skip behavior)
+      if (currentExerciseIndex < exercises.length - 1) {
+        setCurrentExerciseIndex(currentExerciseIndex + 1);
+        setShowExplanation(false);
+      } else {
+        setShowFinalScore(true);
+      }
+    }
+  };
+
+  // Calculate score (excluding skipped questions)
+  const totalAnswered = Object.keys(correctAnswers).filter(id => !skippedQuestions.has(id)).length;
+  const totalCorrect = Object.entries(correctAnswers)
+    .filter(([id, correct]) => !skippedQuestions.has(id) && correct)
+    .length;
+  const actualQuestionsCount = exercises.length - skippedQuestions.size;
+  const scorePercentage = actualQuestionsCount > 0 ? Math.round((totalCorrect / actualQuestionsCount) * 100) : 0;
+
+  const getScoreEmoji = (percentage: number) => {
+    if (percentage >= 90) return '🏆';
+    if (percentage >= 70) return '🎉';
+    if (percentage >= 50) return '👍';
+    return '💪';
+  };
+
+  const getScoreMessage = (percentage: number) => {
+    if (percentage >= 90) return 'מצוין! שליטה מלאה בחומר!';
+    if (percentage >= 70) return 'טוב מאוד! כמעט שם!';
+    if (percentage >= 50) return 'לא רע! המשך להתאמן!';
+    return 'כדאי לחזור על החומר';
   };
 
   const handlePrevious = () => {
@@ -189,6 +376,68 @@ export default function StudySet() {
       setShowExplanation(false);
     }
   };
+
+  // Show final score screen
+  if (showFinalScore) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.scoreContainer}>
+          <Text style={styles.scoreEmoji}>{getScoreEmoji(scorePercentage)}</Text>
+          <Text style={styles.scoreTitle}>סיימת את הלמידה!</Text>
+          
+          <View style={styles.scoreCard}>
+            <Text style={styles.scoreLabel}>הציון שלך</Text>
+            <Text style={styles.scoreNumber}>{scorePercentage}</Text>
+            <Text style={styles.scoreOutOf}>מתוך 100</Text>
+          </View>
+          
+          <View style={styles.scoreDetails}>
+            <View style={styles.scoreDetailRow}>
+              <Text style={styles.scoreDetailLabel}>תשובות נכונות:</Text>
+              <Text style={styles.scoreDetailValue}>{totalCorrect} מתוך {actualQuestionsCount}</Text>
+            </View>
+            {skippedQuestions.size > 0 && (
+              <View style={styles.scoreDetailRow}>
+                <Text style={styles.scoreDetailLabel}>שאלות שדילגת:</Text>
+                <Text style={[styles.scoreDetailValue, { color: '#999' }]}>{skippedQuestions.size}</Text>
+              </View>
+            )}
+            <View style={styles.scoreDetailRow}>
+              <Text style={styles.scoreDetailLabel}>נושא:</Text>
+              <Text style={styles.scoreDetailValue}>{currentSet.subject}</Text>
+            </View>
+          </View>
+          
+          <Text style={styles.scoreMessage}>{getScoreMessage(scorePercentage)}</Text>
+          
+          <View style={styles.scoreButtons}>
+            <TouchableOpacity
+              style={[styles.scoreButton, styles.scoreButtonPrimary]}
+              onPress={() => {
+                setShowFinalScore(false);
+                setCurrentExerciseIndex(0);
+                setUserAnswers({});
+                setCorrectAnswers({});
+                setSkippedQuestions(new Set());
+                setShowExplanation(false);
+              }}
+            >
+              <Ionicons name="refresh" size={20} color="white" />
+              <Text style={styles.scoreButtonTextPrimary}>תרגל שוב</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.scoreButton, styles.scoreButtonSecondary]}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="home" size={20} color={Colors.accent} />
+              <Text style={styles.scoreButtonTextSecondary}>חזור לבית</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -235,14 +484,30 @@ export default function StudySet() {
           totalExercises={exercises.length}
           subject={currentSet.subject}
           onAnswer={(id, answer, correct) => {
+            // Only count if not already answered
+            const isNewAnswer = !userAnswers[id];
+            
             setUserAnswers((prev) => ({
               ...prev,
               [id]: answer,
             }));
+            setCorrectAnswers((prev) => ({
+              ...prev,
+              [id]: correct,
+            }));
             setShowExplanation(true);
+            
+            // Update completedExercises in Firebase (only for authenticated users and new answers)
+            if (isNewAnswer && !isGuest && setId && typeof setId === 'string' && !setId.startsWith('local-')) {
+              const newCompletedCount = Object.keys(userAnswers).length + 1;
+              updateStudySet(setId, { completedExercises: newCompletedCount }).catch(console.error);
+            }
           }}
           onNext={handleNext}
           onPrevious={currentExerciseIndex > 0 ? handlePrevious : undefined}
+          onSkip={handleSkip}
+          onReportRepetitive={handleReportRepetitive}
+          onReportBadReading={handleReportBadReading}
         />
       </View>
 
@@ -265,69 +530,6 @@ export default function StudySet() {
           )}
         </View>
       )}
-
-      {/* Navigation Buttons */}
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[
-            styles.navButton,
-            currentExerciseIndex === 0 && styles.navButtonDisabled,
-          ]}
-          onPress={handlePrevious}
-          disabled={currentExerciseIndex === 0}
-        >
-          <Ionicons
-            name="chevron-back"
-            size={24}
-            color={
-              currentExerciseIndex === 0 ? Colors.lightGray : Colors.accent
-            }
-          />
-          <Text
-            style={[
-              styles.navButtonText,
-              currentExerciseIndex === 0 && styles.navButtonTextDisabled,
-            ]}
-          >
-            הקודם
-          </Text>
-        </TouchableOpacity>
-
-        {!showExplanation ? (
-          <TouchableOpacity
-            style={[styles.submitButton]}
-            onPress={() => {
-              Alert.alert('תשובה', 'אנא בחר תשובה קודם');
-            }}
-          >
-            <Text style={styles.submitButtonText}>שלח תשובה</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[
-              styles.nextButton,
-              currentExerciseIndex === exercises.length - 1 &&
-              styles.finishButton,
-            ]}
-            onPress={handleNext}
-          >
-            <Text style={styles.nextButtonText}>
-              {currentExerciseIndex === exercises.length - 1
-                ? 'סיים'
-                : 'הבא'}
-            </Text>
-            <Ionicons
-              name={
-                currentExerciseIndex === exercises.length - 1
-                  ? 'checkmark-circle'
-                  : 'chevron-forward'
-              }
-              size={24}
-              color="white"
-            />
-          </TouchableOpacity>
-        )}
-      </View>
 
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -532,10 +734,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'white',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+  },
   loadingText: {
-    fontSize: 14,
+    fontSize: 16,
     color: Colors.gray,
-    marginTop: 12,
+    marginTop: 16,
   },
   errorNotice: {
     flexDirection: 'row',
@@ -552,5 +760,114 @@ const styles = StyleSheet.create({
     color: '#e65100',
     flex: 1,
     textAlign: 'right',
+  },
+  // Score screen styles
+  scoreContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: Colors.white,
+  },
+  scoreEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  scoreTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  scoreCard: {
+    backgroundColor: Colors.accent,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 24,
+    width: '80%',
+    maxWidth: 250,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  scoreLabel: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 8,
+  },
+  scoreNumber: {
+    fontSize: 72,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  scoreOutOf: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 4,
+  },
+  scoreDetails: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    padding: 16,
+    width: '100%',
+    marginBottom: 16,
+  },
+  scoreDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  scoreDetailLabel: {
+    fontSize: 15,
+    color: Colors.gray,
+  },
+  scoreDetailValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.textDark,
+  },
+  scoreMessage: {
+    fontSize: 18,
+    color: Colors.accent,
+    fontWeight: '600',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  scoreButtons: {
+    width: '100%',
+    gap: 12,
+  },
+  scoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+  },
+  scoreButtonPrimary: {
+    backgroundColor: Colors.accent,
+  },
+  scoreButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: Colors.accent,
+  },
+  scoreButtonTextPrimary: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+  scoreButtonTextSecondary: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.accent,
   },
 });

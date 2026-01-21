@@ -31,6 +31,125 @@ class AIContentProcessor {
   }
 
   /**
+   * Generate title and subject automatically from content using AI
+   */
+  async generateTitleAndSubject(content: string): Promise<{ title: string; subject: string }> {
+    const truncatedContent = content.slice(0, 3000); // Use first 3000 chars for analysis
+    
+    const prompt = `נתח את הטקסט הבא וצור כותרת קצרה ומתאימה ותחום ידע.
+
+טקסט:
+${truncatedContent}
+
+החזר JSON בפורמט הבא בלבד:
+\`\`\`json
+{
+  "title": "כותרת קצרה ומתאימה (עד 5 מילים)",
+  "subject": "תחום הידע המתאים ביותר מהרשימה: מתמטיקה, פיזיקה, כימיה, ביולוגיה, ספרות, היסטוריה, גיאוגרפיה, תכנות, אנגלית, מדעי המחשב, כלכלה, פסיכולוגיה, רפואה, משפטים, אומנות, ספורט, אחר"
+}
+\`\`\``;
+
+    try {
+      // Try with AI if available
+      if (this.config.provider !== 'local' && this.config.apiKey) {
+        const result = await this.callAIForTitleSubject(prompt);
+        if (result) return result;
+      }
+    } catch (error) {
+      console.error('Error generating title/subject with AI:', error);
+    }
+
+    // Fallback: extract from content locally
+    return this.extractTitleAndSubjectLocally(content);
+  }
+
+  private async callAIForTitleSubject(prompt: string): Promise<{ title: string; subject: string } | null> {
+    try {
+      let response: Response | null = null;
+      let data: any = null;
+
+      if (this.config.provider === 'groq' && this.config.apiKey) {
+        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model || 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            max_tokens: 200,
+          }),
+        });
+      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+          }),
+        });
+      }
+
+      if (response && response.ok) {
+        data = await response.json();
+        let text = '';
+        
+        if (this.config.provider === 'groq') {
+          text = data.choices?.[0]?.message?.content || '';
+        } else if (this.config.provider === 'gemini') {
+          text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
+
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.title && parsed.subject) {
+            return { title: parsed.title, subject: parsed.subject };
+          }
+        }
+      }
+    } catch (error) {
+      console.error('AI title/subject generation failed:', error);
+    }
+    return null;
+  }
+
+  private extractTitleAndSubjectLocally(content: string): { title: string; subject: string } {
+    // Extract first meaningful sentence as title
+    const sentences = content.split(/[.!?\n]/).filter(s => s.trim().length > 5);
+    let title = sentences[0]?.trim().slice(0, 50) || 'חומר לימוד חדש';
+    if (title.length > 40) title = title.slice(0, 40) + '...';
+
+    // Detect subject from keywords
+    const subjectKeywords: { [key: string]: string[] } = {
+      'מתמטיקה': ['משוואה', 'חישוב', 'מספר', 'גיאומטריה', 'אלגברה', 'פונקציה'],
+      'פיזיקה': ['כוח', 'מהירות', 'אנרגיה', 'תאוצה', 'חשמל', 'מגנט'],
+      'כימיה': ['מולקולה', 'אטום', 'תגובה', 'חומצה', 'בסיס', 'יסוד'],
+      'ביולוגיה': ['תא', 'גוף', 'DNA', 'חיידק', 'צמח', 'בעל חיים'],
+      'היסטוריה': ['מלחמה', 'תקופה', 'מלך', 'מדינה', 'שנה', 'עם'],
+      'רפואה': ['מחלה', 'טיפול', 'תרופה', 'רופא', 'חולה', 'בריאות', 'אבחון'],
+      'תכנות': ['קוד', 'פונקציה', 'משתנה', 'לולאה', 'תוכנה', 'אלגוריתם'],
+    };
+
+    const lowerContent = content.toLowerCase();
+    let detectedSubject = 'אחר';
+    let maxMatches = 0;
+
+    for (const [subject, keywords] of Object.entries(subjectKeywords)) {
+      const matches = keywords.filter(kw => lowerContent.includes(kw)).length;
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        detectedSubject = subject;
+      }
+    }
+
+    return { title, subject: detectedSubject };
+  }
+
+  /**
    * Main method to process uploaded content and generate exercises
    */
   async processContent(
@@ -231,22 +350,52 @@ ${examples}
 
     // Build bad examples section if we have bad feedback
     let badExamplesSection = '';
+    let repetitiveQuestions: string[] = [];
     if (badExamples && badExamples.length > 0) {
-      const badExamplesList = badExamples
-        .slice(0, 3)
-        .map((ex) => `- "${ex.questionText}" (${ex.reason || 'לא ברור'})`)
-        .join('\n');
-      badExamplesSection = `
+      // Separate repetitive questions from other bad examples
+      const repetitive = badExamples.filter(ex => ex.reason === 'repetitive');
+      const otherBad = badExamples.filter(ex => ex.reason !== 'repetitive');
+      
+      repetitiveQuestions = repetitive.map(ex => ex.questionText);
+      
+      if (otherBad.length > 0) {
+        const badExamplesList = otherBad
+          .slice(0, 3)
+          .map((ex) => {
+            const reasonText = ex.reason === 'unclear' ? 'לא ברורה' :
+                              ex.reason === 'too-easy' ? 'קלה מדי' :
+                              ex.reason === 'too-hard' ? 'קשה מדי' :
+                              ex.reason === 'wrong-answer' ? 'תשובה שגויה' :
+                              ex.reason === 'not-relevant' ? 'לא רלוונטית' : 'בעייתית';
+            return `- "${ex.questionText}" (${reasonText})`;
+          })
+          .join('\n');
+        badExamplesSection = `
 
-דוגמאות לשאלות רעות שקיבלו משוב שלילי מהמשתמשים:
+דוגמאות לשאלות בעייתיות שקיבלו משוב שלילי:
 ${badExamplesList}
 
-הימנע מיצירת שאלות דומות או עם אותן טעויות.`;
+הימנע מיצירת שאלות דומות או עם אותן בעיות.`;
+      }
+      
+      if (repetitiveQuestions.length > 0) {
+        badExamplesSection += `
+
+⚠️ שאלות שדווחו כחזרתיות (אסור לשאול שאלות דומות או על אותו נושא):
+${repetitiveQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n')}`;
+      }
     }
 
     // Generate random seed for variety
     const randomSeed = Math.floor(Math.random() * 10000);
     const sessionId = Date.now();
+
+    // Log content size for debugging
+    console.log(`[AI] Content size: ${content.length} characters, Subject: ${request.subject}`);
+    console.log(`[AI] Generating ${request.numberOfExercises} exercises from content`);
+    if (repetitiveQuestions.length > 0) {
+      console.log(`[AI] Avoiding ${repetitiveQuestions.length} repetitive question patterns`);
+    }
 
     // Build previous questions section to prevent repetition
     let previousQuestionsSection = '';
@@ -255,18 +404,28 @@ ${badExamplesList}
         .slice(0, 20) // Limit to last 20 questions to save tokens
         .map((q, i) => `${i + 1}. "${q}"`)
         .join('\n');
+      
+      const forceNew = (request as any).forceNewQuestions;
       previousQuestionsSection = `
 
-⚠️ **שאלות שכבר נשאלו (אסור לחזור עליהן או לשאול שאלות דומות):**
+⚠️ **${forceNew ? '🚫 שאלות שגויות/קודמות - חובה להימנע לחלוטין!' : 'שאלות שכבר נשאלו (אסור לחזור עליהן או לשאול שאלות דומות):'}**
 ${prevQuestions}
 
-חובה: צור שאלות חדשות לחלוטין שלא מופיעות ברשימה הזו ולא דומות להן.`;
+${forceNew ? `
+🔴 חובה מוחלטת: 
+- אל תשתמש באותן מילים או ניסוחים דומים
+- אל תשאל על אותם נושאים/מושגים
+- צור שאלות מזווית אחרת לגמרי
+- התמקד בפרטים אחרים מהטקסט
+- אם השאלות הקודמות היו על הגדרות - שאל על דוגמאות
+- אם היו על תאריכים - שאל על סיבות ותוצאות
+` : 'חובה: צור שאלות חדשות לחלוטין שלא מופיעות ברשימה הזו ולא דומות להן.'}`;
     }
 
     const prompt = `אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
 
 חומר הלימוד (קרא את כל הטקסט מתחילתו ועד סופו!):
-${content.slice(0, 50000)}
+${content}
 
 נושא: ${request.subject}
 רמת קושי מועדפת: ${request.targetDifficulty}
@@ -1225,7 +1384,7 @@ ${previousQuestionsSection}
       type: 'fill-blank',
       question: `${selectedTemplate.prefix} ${sentenceWithBlank}`,
       options: shuffledOptions, // Provide options as hints
-      correctAnswer: shuffledOptions.indexOf(correctAnswer),
+      correctAnswer: correctAnswer, // Store the actual text, not the index
       explanation: `המילה החסרה היא "${correctAnswer}". המשפט המלא מופיע בחומר: "${sentence.slice(0, 70)}..."`,
       difficulty,
       topic,
@@ -1234,7 +1393,7 @@ ${previousQuestionsSection}
   }
 
   /**
-   * Create matching exercise
+   * Create matching exercise - Duolingo-style tap the pairs
    */
   private createMatching(
     content: string,
@@ -1243,26 +1402,51 @@ ${previousQuestionsSection}
     topic: string,
     index: number
   ): GeneratedExercise {
+    // Extract key terms and their definitions/translations from content
     const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 15);
-    const options = sentences.slice(index, index + 3).map((s, i) =>
-      `${i + 1}. ${s.trim().slice(0, 50)}...`
-    );
+    
+    // Create 5 pairs for matching (like Duolingo)
+    const numPairs = 5;
+    const pairs: { left: string; right: string }[] = [];
+    
+    // Try to extract meaningful pairs from content
+    for (let i = 0; i < Math.min(numPairs, sentences.length); i++) {
+      const sentence = sentences[(index + i) % sentences.length].trim();
+      const words = sentence.split(/\s+/).filter(w => w.length > 2);
+      
+      if (words.length >= 2) {
+        // Use first meaningful word as left, and a related concept as right
+        const leftWord = words[0].replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
+        const rightWord = words[Math.min(1, words.length - 1)].replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
+        if (leftWord && rightWord && leftWord !== rightWord) {
+          pairs.push({ left: leftWord, right: rightWord });
+        }
+      }
+    }
+    
+    // Fill remaining with topic-related placeholders if needed
+    while (pairs.length < numPairs) {
+      pairs.push({
+        left: `מושג ${pairs.length + 1}`,
+        right: `הגדרה ${pairs.length + 1}`
+      });
+    }
+    
+    // keywords = left items, options = right items (in same order - will be shuffled in UI)
+    const keywords = pairs.map(p => p.left);
+    const options = pairs.map(p => p.right);
 
     return {
       id: `ex-mt-${index}-${Date.now()}`,
       contentId: '',
       type: 'matching',
-      question: `התאם את המשפטים למושגים הקשורים ל"${topic}"`,
-      options: options.length === 3 ? options : [
-        '1. מושג ראשון מהחומר',
-        '2. מושג שני מהחומר',
-        '3. מושג שלישי מהחומר',
-      ],
-      correctAnswer: ['A', 'B', 'C'],
-      explanation: `ההתאמות הנכונות מראות את הקשר בין המושגים המרכזיים ב${topic} במסגרת ${subject}.`,
+      question: 'התאם את הזוגות',
+      options: options, // Right column items
+      keywords: keywords, // Left column items
+      correctAnswer: [0, 1, 2, 3, 4], // Index mapping (left[i] matches options[i])
+      explanation: `התאמת מושגים מרכזיים מהחומר בנושא ${topic}.`,
       difficulty,
       topic,
-      keywords: [topic],
     };
   }
 
@@ -1456,6 +1640,218 @@ ${previousQuestionsSection}
     }
 
     return targetDifficulties[index % targetDifficulties.length];
+  }
+
+  /**
+   * Check if a user's answer is semantically correct using AI
+   * This allows for variations in phrasing, spelling, etc.
+   */
+  async checkAnswerWithAI(
+    question: string,
+    userAnswer: string,
+    correctAnswer: string
+  ): Promise<{ isCorrect: boolean; feedback?: string }> {
+    // First, do basic normalization check
+    const normalizedUser = this.normalizeAnswer(userAnswer);
+    const normalizedCorrect = this.normalizeAnswer(correctAnswer);
+    
+    // If exact match after normalization, no need for AI
+    if (normalizedUser === normalizedCorrect) {
+      return { isCorrect: true };
+    }
+
+    // If answers are very similar (minor typo), accept
+    if (this.calculateSimilarity(normalizedUser, normalizedCorrect) > 0.85) {
+      return { isCorrect: true, feedback: 'תשובה נכונה (עם שגיאת כתיב קטנה)' };
+    }
+
+    // Use AI for semantic comparison
+    try {
+      if (this.config.provider !== 'local' && this.config.apiKey) {
+        const result = await this.callAIForAnswerCheck(question, userAnswer, correctAnswer);
+        if (result !== null) {
+          return result;
+        }
+      }
+    } catch (error) {
+      console.error('AI answer check failed:', error);
+    }
+
+    // Fallback: check for partial match or synonyms
+    return this.checkAnswerLocally(normalizedUser, normalizedCorrect);
+  }
+
+  private normalizeAnswer(answer: string): string {
+    return answer
+      .trim()
+      .toLowerCase()
+      // Remove punctuation
+      .replace(/[.,!?;:'"()-]/g, '')
+      // Normalize Hebrew final letters
+      .replace(/ך/g, 'כ')
+      .replace(/ם/g, 'מ')
+      .replace(/ן/g, 'נ')
+      .replace(/ף/g, 'פ')
+      .replace(/ץ/g, 'צ')
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private calculateSimilarity(str1: string, str2: string): number {
+    if (str1 === str2) return 1;
+    if (str1.length === 0 || str2.length === 0) return 0;
+
+    // Levenshtein distance based similarity
+    const matrix: number[][] = [];
+    
+    for (let i = 0; i <= str1.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= str2.length; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= str1.length; i++) {
+      for (let j = 1; j <= str2.length; j++) {
+        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + cost
+        );
+      }
+    }
+
+    const distance = matrix[str1.length][str2.length];
+    const maxLen = Math.max(str1.length, str2.length);
+    return 1 - distance / maxLen;
+  }
+
+  private async callAIForAnswerCheck(
+    question: string,
+    userAnswer: string,
+    correctAnswer: string
+  ): Promise<{ isCorrect: boolean; feedback?: string } | null> {
+    const prompt = `בדוק אם התשובה של המשתמש נכונה מבחינה סמנטית.
+
+שאלה: ${question}
+תשובה נכונה: ${correctAnswer}
+תשובת המשתמש: ${userAnswer}
+
+הוראות:
+- תשובה נחשבת נכונה אם היא מביעה את אותו רעיון, גם אם בניסוח שונה
+- התעלם משגיאות כתיב קטנות
+- קבל תשובות מקוצרות אם הן מדויקות (למשל "log n" במקום "log(n)")
+- קבל תשובות במילים אחרות אם המשמעות זהה
+
+החזר JSON בפורמט:
+\`\`\`json
+{
+  "isCorrect": true/false,
+  "feedback": "הסבר קצר אם התשובה שגויה"
+}
+\`\`\``;
+
+    try {
+      let response: Response | null = null;
+
+      if (this.config.provider === 'groq' && this.config.apiKey) {
+        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model || 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 150,
+          }),
+        });
+      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 150 },
+          }),
+        });
+      } else if (this.config.provider === 'openai' && this.config.apiKey) {
+        response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model || 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 150,
+          }),
+        });
+      }
+
+      if (response && response.ok) {
+        const data = await response.json();
+        let text = '';
+        
+        if (this.config.provider === 'groq' || this.config.provider === 'openai') {
+          text = data.choices?.[0]?.message?.content || '';
+        } else if (this.config.provider === 'gemini') {
+          text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
+
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            isCorrect: Boolean(parsed.isCorrect),
+            feedback: parsed.feedback,
+          };
+        }
+      }
+    } catch (error) {
+      console.error('AI answer check API call failed:', error);
+    }
+    return null;
+  }
+
+  private checkAnswerLocally(
+    normalizedUser: string,
+    normalizedCorrect: string
+  ): { isCorrect: boolean; feedback?: string } {
+    // Check if user answer contains the correct answer or vice versa
+    if (normalizedUser.includes(normalizedCorrect) || normalizedCorrect.includes(normalizedUser)) {
+      if (normalizedUser.length >= normalizedCorrect.length * 0.7) {
+        return { isCorrect: true, feedback: 'תשובה נכונה (חלקית)' };
+      }
+    }
+
+    // Check for common mathematical equivalents
+    const mathEquivalents: { [key: string]: string[] } = {
+      'log n': ['logn', 'log(n)', 'o(log n)', 'o(logn)', 'h=logn', 'h=log(n)', 'h = log n', 'h = log(n)'],
+      'n log n': ['nlogn', 'n*log(n)', 'n * log n', 'o(n log n)', 'o(nlogn)'],
+      'n^2': ['n2', 'n**2', 'n בריבוע', 'n squared', 'o(n^2)', 'o(n2)'],
+      '2^n': ['2n', '2**n', '2 בחזקת n', 'o(2^n)'],
+      'n': ['o(n)', 'n', 'ליניארי'],
+      '1': ['o(1)', 'קבוע', 'constant'],
+    };
+
+    for (const [key, equivalents] of Object.entries(mathEquivalents)) {
+      const allForms = [key, ...equivalents].map(s => s.replace(/\s+/g, ''));
+      const userNoSpace = normalizedUser.replace(/\s+/g, '');
+      const correctNoSpace = normalizedCorrect.replace(/\s+/g, '');
+      
+      if (allForms.includes(userNoSpace) && allForms.includes(correctNoSpace)) {
+        return { isCorrect: true };
+      }
+    }
+
+    return { isCorrect: false };
   }
 }
 

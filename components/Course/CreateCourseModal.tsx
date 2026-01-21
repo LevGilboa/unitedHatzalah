@@ -54,17 +54,25 @@ export default function CreateCourseModal({
   };
 
   const handleCreate = async () => {
-    if (!courseTitle.trim()) {
-      Alert.alert('שגיאה', 'נא להזין שם לקורס');
-      return;
-    }
-
     if (selectedStudySets.length === 0) {
       Alert.alert('שגיאה', 'נא לבחור לפחות קובץ אחד');
       return;
     }
 
     setIsCreating(true);
+    
+    // Auto-generate course title if not provided
+    let finalCourseTitle = courseTitle.trim();
+    if (!finalCourseTitle) {
+      const selected = availableStudySets.filter((s) => selectedStudySets.includes(s.id!));
+      if (selected.length === 1) {
+        finalCourseTitle = `קורס: ${selected[0].title}`;
+      } else if (selected.length > 1) {
+        finalCourseTitle = `קורס משולב (${selected.length} נושאים)`;
+      } else {
+        finalCourseTitle = `קורס חדש ${new Date().toLocaleDateString('he-IL')}`;
+      }
+    }
 
     try {
       // Get selected study sets with their content
@@ -85,7 +93,7 @@ export default function CreateCourseModal({
       );
 
       const courseData: Omit<CustomCourse, 'id'> = {
-        title: courseTitle.trim(),
+        title: finalCourseTitle,
         description: `קורס מותאם אישית עם ${lessons.length} שיעורים`,
         coverColor: selectedColor,
         isCustom: true,
@@ -114,9 +122,9 @@ export default function CreateCourseModal({
       onClose();
 
       if (Platform.OS === 'web') {
-        alert(`הקורס "${courseTitle}" נוצר בהצלחה!`);
+        alert(`הקורס "${finalCourseTitle}" נוצר בהצלחה!`);
       } else {
-        Alert.alert('הצלחה', `הקורס "${courseTitle}" נוצר בהצלחה!`);
+        Alert.alert('הצלחה', `הקורס "${finalCourseTitle}" נוצר בהצלחה!`);
       }
     } catch (error) {
       console.error('Error creating course:', error);
@@ -176,12 +184,12 @@ export default function CreateCourseModal({
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {/* Course Title */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>שם הקורס</Text>
+            <Text style={styles.sectionTitle}>שם הקורס (אופציונלי)</Text>
             <TextInput
               style={styles.input}
               value={courseTitle}
               onChangeText={setCourseTitle}
-              placeholder="הזן שם לקורס..."
+              placeholder="השאר ריק ליצירה אוטומטית..."
               placeholderTextColor={Colors.gray}
             />
           </View>
@@ -257,11 +265,11 @@ export default function CreateCourseModal({
           <TouchableOpacity
             style={[
               styles.createButton,
-              (!courseTitle.trim() || selectedStudySets.length === 0) &&
+              selectedStudySets.length === 0 &&
                 styles.createButtonDisabled,
             ]}
             onPress={handleCreate}
-            disabled={!courseTitle.trim() || selectedStudySets.length === 0 || isCreating}
+            disabled={selectedStudySets.length === 0 || isCreating}
           >
             {isCreating ? (
               <ActivityIndicator color="white" />

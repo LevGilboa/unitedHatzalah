@@ -23,13 +23,75 @@ import { useAuthStore } from '@/stores/authStore';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { getAIProcessor } from '@/services/AIContentProcessor';
 
+// Helper function to check if extracted text looks like garbage (mostly numbers/gibberish)
+const isGarbageText = (text: string): boolean => {
+  if (!text || text.length < 50) return false;
+  
+  // Count different character types
+  const digits = (text.match(/\d/g) || []).length;
+  const letters = (text.match(/[a-zA-Zא-ת]/g) || []).length;
+  const total = text.length;
+  
+  // Check for specific repeating number patterns (like "11272014" appearing many times)
+  const numberMatches = text.match(/\d{6,}/g) || [];
+  if (numberMatches.length > 5) {
+    // Count how many times each number appears
+    const numberCounts: Record<string, number> = {};
+    for (const num of numberMatches) {
+      numberCounts[num] = (numberCounts[num] || 0) + 1;
+    }
+    const maxNumRepeat = Math.max(...Object.values(numberCounts), 0);
+    if (maxNumRepeat >= 5) {
+      console.log(`[PDF] Number "${Object.entries(numberCounts).find(([_, v]) => v === maxNumRepeat)?.[0]}" repeats ${maxNumRepeat} times - likely garbage`);
+      return true;
+    }
+  }
+  
+  // Check for long sequences of numbers (like "11272014 15 11272014 16")
+  const longNumberSequences = text.match(/(\d{5,}\s*){3,}/g);
+  if (longNumberSequences && longNumberSequences.length > 0) {
+    console.log('[PDF] Detected long number sequences - likely garbage');
+    return true;
+  }
+  
+  // If more than 30% digits and less than 40% letters, it's probably garbage
+  const digitRatio = digits / total;
+  const letterRatio = letters / total;
+  
+  console.log(`[PDF] Text analysis: ${Math.round(digitRatio * 100)}% digits, ${Math.round(letterRatio * 100)}% letters`);
+  
+  if (digitRatio > 0.3 && letterRatio < 0.4) {
+    console.log('[PDF] High digit ratio, low letter ratio - likely garbage');
+    return true;
+  }
+  
+  // Check for repeating patterns (like "11272014" repeating many times)
+  const words = text.split(/\s+/);
+  const wordCounts: Record<string, number> = {};
+  for (const word of words) {
+    if (word.length > 3) {
+      wordCounts[word] = (wordCounts[word] || 0) + 1;
+    }
+  }
+  
+  // If any single "word" repeats more than 10% of all words (and at least 5 times), suspicious
+  const maxRepeat = Math.max(...Object.values(wordCounts), 0);
+  if (maxRepeat > words.length * 0.1 && maxRepeat >= 5) {
+    const repeatingWord = Object.entries(wordCounts).find(([_, v]) => v === maxRepeat)?.[0];
+    console.log(`[PDF] Word "${repeatingWord}" repeating ${maxRepeat} times - likely garbage`);
+    return true;
+  }
+  
+  return false;
+};
+
 // Helper function to extract text from PDF locally using pdf-parse
 const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string> => {
   try {
     // For web, we'll use pdf.js via CDN
     if (Platform.OS === 'web') {
       // @ts-ignore - pdfjsLib loaded from CDN
-      const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+      let pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
       
       if (!pdfjsLib) {
         // Load pdf.js dynamically
@@ -48,24 +110,61 @@ const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string
       
       const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
+      let totalChars = 0;
+      
+      console.log(`[PDF] Document has ${pdf.numPages} pages`);
       
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
-        fullText += pageText + '\n\n';
+        
+        // Better text reconstruction with proper spacing
+        let pageText = '';
+        let lastY = -1;
+        
+        for (const item of textContent.items) {
+          const textItem = item as any;
+          const currentY = textItem.transform ? textItem.transform[5] : 0;
+          
+          // Add newline if Y position changed significantly (different line)
+          if (lastY !== -1 && Math.abs(currentY - lastY) > 5) {
+            pageText += '\n';
+          } else if (pageText.length > 0 && !pageText.endsWith(' ') && !pageText.endsWith('\n')) {
+            pageText += ' ';
+          }
+          
+          pageText += textItem.str;
+          lastY = currentY;
+        }
+        
+        const trimmedPage = pageText.trim();
+        console.log(`[PDF] Page ${i}: ${trimmedPage.length} chars`);
+        totalChars += trimmedPage.length;
+        
+        if (trimmedPage) {
+          fullText += trimmedPage + '\n\n';
+        }
       }
       
-      return fullText.trim();
+      console.log(`[PDF] Total extracted: ${totalChars} chars from ${pdf.numPages} pages`);
+      
+      // Check if extraction yielded meaningful content
+      const result = fullText.trim();
+      if (result.length < 100 && pdf.numPages > 0) {
+        // Very little text extracted - probably scanned PDF
+        throw new Error('SCANNED_PDF');
+      }
+      
+      return result;
     } else {
       // For native, we need a different approach
-      // pdf-parse doesn't work directly in React Native
       throw new Error('PDF extraction not supported on mobile - please paste text manually');
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('PDF extraction error:', error);
+    if (error.message === 'SCANNED_PDF') {
+      throw error;
+    }
     throw error;
   }
 };
@@ -196,8 +295,15 @@ export default function UploadContent() {
           
           const errorMessage = error instanceof Error ? error.message : '';
           const isQuotaError = errorMessage === 'QUOTA_EXCEEDED' || errorMessage.includes('quota') || errorMessage.includes('429');
+          const isScannedPDF = errorMessage === 'SCANNED_PDF';
           
-          if (isQuotaError) {
+          if (isScannedPDF) {
+            Alert.alert(
+              '📷 PDF סרוק',
+              'נראה שה-PDF מכיל תמונות ולא טקסט (PDF סרוק).\n\nמה לעשות:\n1. פתח את ה-PDF במחשב\n2. סמן וגרר את הטקסט (Ctrl+A)\n3. העתק (Ctrl+C)\n4. לחץ "הדבק טקסט" כאן והדבק (Ctrl+V)',
+              [{ text: 'הבנתי' }]
+            );
+          } else if (isQuotaError) {
             Alert.alert(
               'מכסת API נגמרה',
               'המערכת הגיעה למגבלת הבקשות. אנא המתן דקה ונסה שוב, או העתק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
@@ -273,16 +379,7 @@ export default function UploadContent() {
       fileContentLength: state.fileContent.length
     });
     
-    if (!state.title.trim()) {
-      console.log('Validation failed: missing title');
-      Alert.alert('שגיאה', 'אנא הזן כותרת');
-      return false;
-    }
-    if (!state.subject.trim()) {
-      console.log('Validation failed: missing subject');
-      Alert.alert('שגיאה', 'אנא בחר תחום ידע');
-      return false;
-    }
+    // Title and subject are optional - AI will generate them if not provided
     if (!state.fileContent.trim()) {
       console.log('Validation failed: missing content');
       Alert.alert('שגיאה', 'אנא העלה או הדבק תוכן ללימוד');
@@ -309,6 +406,19 @@ export default function UploadContent() {
       const isGuest = useAuthStore.getState().isGuest;
       const userId = user?.email || `guest-${Date.now()}`;
       
+      // Auto-generate title and subject if not provided
+      let finalTitle = state.title.trim();
+      let finalSubject = state.subject.trim();
+      
+      if (!finalTitle || !finalSubject) {
+        setUploadProgress('מזהה כותרת ותחום באופן אוטומטי...');
+        const processor = getAIProcessor();
+        const autoGenerated = await processor.generateTitleAndSubject(state.fileContent);
+        if (!finalTitle) finalTitle = autoGenerated.title;
+        if (!finalSubject) finalSubject = autoGenerated.subject;
+        console.log('Auto-generated:', { finalTitle, finalSubject });
+      }
+      
       let contentId = `local-${Date.now()}`;
       
       if (!isGuest) {
@@ -321,9 +431,9 @@ export default function UploadContent() {
           fileName: state.fileName || `content-${Date.now()}`,
           fileType: state.fileType,
           fileUrl: `gs://bucket/${state.fileName}`,
-          title: state.title,
+          title: finalTitle,
           description: state.description,
-          subject: state.subject,
+          subject: finalSubject,
           uploadedAt: Date.now(),
           status: 'processing',
         });
@@ -337,8 +447,8 @@ export default function UploadContent() {
 
       // Fetch good question examples for this subject to improve AI generation
       const { fetchGoodQuestionExamples, fetchBadQuestionExamples } = useContentAndStudyStore.getState();
-      const goodExamples = await fetchGoodQuestionExamples(state.subject, 5);
-      const badExamples = await fetchBadQuestionExamples(state.subject, 5);
+      const goodExamples = await fetchGoodQuestionExamples(finalSubject, 5);
+      const badExamples = await fetchBadQuestionExamples(finalSubject, 5);
       console.log('Good examples found:', goodExamples.length);
       console.log('Bad examples found:', badExamples.length);
 
@@ -347,12 +457,11 @@ export default function UploadContent() {
       const response = await processor.processContent({
         contentId,
         userId: userId,
-        title: state.title,
+        title: finalTitle,
         content: state.fileContent,
-        subject: state.subject,
+        subject: finalSubject,
         preferredExerciseTypes: [
           'multiple-choice',
-          'fill-blank',
           'true-false',
           'matching',
         ],
@@ -372,9 +481,9 @@ export default function UploadContent() {
       const studySetData = {
         userId: userId,
         contentId,
-        title: state.title,
+        title: finalTitle,
         description: response.summary || '',
-        subject: state.subject,
+        subject: finalSubject,
         exercises: response.exercises,
         originalContent: state.fileContent, // Save content for regenerating exercises
         completedExercises: 0,
@@ -412,7 +521,7 @@ export default function UploadContent() {
       setUploadProgress('');
       Alert.alert(
         'הצלחה!',
-        `תוכן "${state.title}" עובד בהצלחה. נוצרו ${response.exercises.length} תרגילים${isGuest ? '\n\n💡 התחבר כדי לשמור את ההתקדמות שלך!' : ''}`,
+        `תוכן "${finalTitle}" עובד בהצלחה. נוצרו ${response.exercises.length} תרגילים${isGuest ? '\n\n💡 התחבר כדי לשמור את ההתקדמות שלך!' : ''}`,
         [
           {
             text: 'התחל ללמוד',
@@ -476,7 +585,7 @@ export default function UploadContent() {
 
       {/* Title Input */}
       <View style={styles.section}>
-        <Text style={styles.label}>כותרת החומר *</Text>
+        <Text style={styles.label}>כותרת החומר (אופציונלי)</Text>
         <CustomInput
           placeholder="לדוגמה: פרק 3 - התהליך הפוטוסינתטי"
           handleTextChange={(text: string) => setState((prev) => ({ ...prev, title: text }))}
@@ -486,7 +595,7 @@ export default function UploadContent() {
 
       {/* Subject Selection */}
       <View style={styles.section}>
-        <Text style={styles.label}>תחום ידע *</Text>
+        <Text style={styles.label}>תחום ידע (אופציונלי - יזוהה אוטומטית)</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -566,6 +675,15 @@ export default function UploadContent() {
               disabled={loading}
               backgroundColor={Colors.secondary}
             />
+            <View style={styles.dividerContainer}>
+              <Text style={styles.divider}>או</Text>
+            </View>
+            <CustomButton
+              title="📁 אל הקבצים שלי"
+              handlePress={() => router.push('/(tabs)/my-content')}
+              disabled={loading}
+              backgroundColor="#4CAF50"
+            />
           </>
         )}
       </View>
@@ -578,13 +696,15 @@ export default function UploadContent() {
         </View>
       )}
 
-      {/* Upload Button */}
-      <CustomButton
-        title={loading ? 'בעיבוד...' : 'העלה ועיבד'}
-        handlePress={handleUploadAndProcess}
-        disabled={loading || !state.fileContent}
-        backgroundColor={Colors.accent}
-      />
+      {/* Upload Button - only show when file is loaded */}
+      {state.fileContent && (
+        <CustomButton
+          title={loading ? 'מעבד...' : 'לחץ כדי להעלות'}
+          handlePress={handleUploadAndProcess}
+          disabled={loading}
+          backgroundColor={Colors.accent}
+        />
+      )}
 
       <View style={{ height: 40 }} />
 

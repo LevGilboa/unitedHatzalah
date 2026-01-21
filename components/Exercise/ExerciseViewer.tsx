@@ -15,6 +15,7 @@ import { Colors } from '@/constants/Colors';
 import { GeneratedExercise, ExerciseType, FeedbackRating, FeedbackReason } from '@/types/ai-learning';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { useAuthStore } from '@/stores/authStore';
+import { getAIProcessor } from '@/services/AIContentProcessor';
 
 I18nManager.forceRTL(true);
 
@@ -25,6 +26,8 @@ const FEEDBACK_REASONS: { value: FeedbackReason; label: string }[] = [
   { value: 'too-hard', label: '🤯 קשה מדי' },
   { value: 'wrong-answer', label: '❌ התשובה הנכונה שגויה' },
   { value: 'not-relevant', label: '🎯 לא קשורה לחומר' },
+  { value: 'repetitive', label: '🔄 שאלה חזרתית' },
+  { value: 'bad-reading', label: '📄 קריאה שגויה של הקובץ' },
   { value: 'other', label: '💬 אחר' },
 ];
 
@@ -36,6 +39,9 @@ interface ExerciseViewerProps {
   onAnswer: (exerciseId: string, answer: string | number | string[], correct: boolean) => void;
   onNext: () => void;
   onPrevious?: () => void;
+  onSkip?: () => void;
+  onReportRepetitive?: () => void;
+  onReportBadReading?: () => void;
 }
 
 const getDifficultyColor = (difficulty: string) => {
@@ -76,6 +82,9 @@ export default function ExerciseViewer({
   onAnswer,
   onNext,
   onPrevious,
+  onSkip,
+  onReportRepetitive,
+  onReportBadReading,
 }: ExerciseViewerProps) {
   const [selectedAnswer, setSelectedAnswer] = useState<string | number | string[] | null>(null);
   const [textAnswer, setTextAnswer] = useState('');
@@ -86,6 +95,14 @@ export default function ExerciseViewer({
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [openFeedbackText, setOpenFeedbackText] = useState('');
   const [selectedReason, setSelectedReason] = useState<FeedbackReason | null>(null);
+  const [isCheckingAnswer, setIsCheckingAnswer] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null);
+  
+  // Matching pairs state
+  const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
+  const [selectedRight, setSelectedRight] = useState<number | null>(null);
+  const [matchedPairs, setMatchedPairs] = useState<number[]>([]); // indices of matched left items
+  const [shuffledRight, setShuffledRight] = useState<{text: string, originalIndex: number}[]>([]);
 
   const user = useAuthStore((state) => state.user);
   const { submitQuestionFeedback } = useContentAndStudyStore();
@@ -98,10 +115,36 @@ export default function ExerciseViewer({
     setIsCorrect(false);
     setFeedbackGiven(false);
     setShowReasonModal(false);
+    setSelectedLeft(null);
+    setSelectedRight(null);
+    setMatchedPairs([]);
+    setIsCheckingAnswer(false);
+    setAiFeedback(null);
+    
+    // Shuffle right side options for matching
+    if (exercise.type === 'matching' && exercise.options) {
+      const rightOptions = exercise.options.map((opt, idx) => ({
+        text: opt,
+        originalIndex: idx
+      }));
+      // Shuffle
+      for (let i = rightOptions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rightOptions[i], rightOptions[j]] = [rightOptions[j], rightOptions[i]];
+      }
+      setShuffledRight(rightOptions);
+    }
   }, [exercise.id]);
 
   const handleQuestionFeedback = async (rating: FeedbackRating, reason?: FeedbackReason) => {
     if (feedbackGiven || isSubmittingFeedback) return;
+    
+    // Special handling for bad-reading feedback - delegate to parent
+    if (reason === 'bad-reading' && onReportBadReading) {
+      setShowReasonModal(false);
+      onReportBadReading();
+      return;
+    }
     
     // For guests, just mark as given without saving to Firebase
     if (!user) {
@@ -138,7 +181,7 @@ export default function ExerciseViewer({
     setShowReasonModal(true);
   };
 
-  const checkAnswer = () => {
+  const checkAnswer = async () => {
     // For fill-blank and short-answer, use textAnswer
     const answerToCheck = exercise.type === 'fill-blank' || exercise.type === 'short-answer' 
       ? textAnswer.trim() 
@@ -154,10 +197,30 @@ export default function ExerciseViewer({
     let isAnswerCorrect = false;
 
     if (exercise.type === 'fill-blank' || exercise.type === 'short-answer') {
-      // For text answers, compare strings (case insensitive)
-      const userAnswer = String(answerToCheck).trim().toLowerCase();
-      const correct = String(correctAnswer).trim().toLowerCase();
-      isAnswerCorrect = userAnswer === correct;
+      // For text answers, use AI-powered semantic checking
+      setIsCheckingAnswer(true);
+      setAiFeedback(null);
+      
+      try {
+        const processor = getAIProcessor();
+        const result = await processor.checkAnswerWithAI(
+          exercise.question,
+          String(answerToCheck),
+          String(correctAnswer)
+        );
+        isAnswerCorrect = result.isCorrect;
+        if (result.feedback) {
+          setAiFeedback(result.feedback);
+        }
+      } catch (error) {
+        console.error('AI answer check failed, falling back to exact match:', error);
+        // Fallback to exact match
+        const userAnswer = String(answerToCheck).trim().toLowerCase();
+        const correct = String(correctAnswer).trim().toLowerCase();
+        isAnswerCorrect = userAnswer === correct;
+      } finally {
+        setIsCheckingAnswer(false);
+      }
     } else if (Array.isArray(correctAnswer) && Array.isArray(selectedAnswer)) {
       isAnswerCorrect = JSON.stringify(correctAnswer.sort()) === JSON.stringify(selectedAnswer.sort());
     } else {
@@ -292,9 +355,18 @@ export default function ExerciseViewer({
         placeholderTextColor="#999"
         value={textAnswer}
         onChangeText={setTextAnswer}
-        editable={!showFeedback}
+        editable={!showFeedback && !isCheckingAnswer}
         textAlign="right"
       />
+      {isCheckingAnswer && (
+        <View style={styles.checkingAnswerContainer}>
+          <ActivityIndicator size="small" color={Colors.accent} />
+          <Text style={styles.checkingAnswerText}>בודק את התשובה...</Text>
+        </View>
+      )}
+      {showFeedback && isCorrect && aiFeedback && (
+        <Text style={styles.aiFeedbackText}>{aiFeedback}</Text>
+      )}
       {showFeedback && !isCorrect && (
         <Text style={styles.correctAnswerText}>
           התשובה הנכונה: {exercise.correctAnswer}
@@ -303,19 +375,122 @@ export default function ExerciseViewer({
     </View>
   );
 
-  const renderMatching = () => (
-    <View style={styles.exerciseContent}>
-      <Text style={styles.question}>{exercise.question}</Text>
-      {/* TODO: Implement matching interface */}
-      <View style={styles.matchingContainer}>
-        {exercise.options?.map((option, index) => (
-          <View key={index} style={styles.matchingItem}>
-            <Text style={styles.matchingText}>{option}</Text>
+  const handleMatchingSelect = (side: 'left' | 'right', index: number) => {
+    if (showFeedback) return;
+    
+    if (side === 'left') {
+      if (matchedPairs.includes(index)) return; // Already matched
+      setSelectedLeft(selectedLeft === index ? null : index);
+    } else {
+      setSelectedRight(selectedRight === index ? null : index);
+    }
+  };
+
+  // Check if a pair is selected and verify match
+  useEffect(() => {
+    if (selectedLeft !== null && selectedRight !== null && exercise.type === 'matching') {
+      const rightItem = shuffledRight[selectedRight];
+      const isMatch = rightItem.originalIndex === selectedLeft;
+      
+      if (isMatch) {
+        // Correct match!
+        setMatchedPairs(prev => [...prev, selectedLeft]);
+      }
+      
+      // Reset selections after a short delay
+      setTimeout(() => {
+        setSelectedLeft(null);
+        setSelectedRight(null);
+      }, 300);
+    }
+  }, [selectedLeft, selectedRight]);
+
+  // Check if all pairs are matched
+  useEffect(() => {
+    if (exercise.type === 'matching' && exercise.options && 
+        matchedPairs.length === exercise.options.length && matchedPairs.length > 0) {
+      setShowFeedback(true);
+      setIsCorrect(true);
+      onAnswer(exercise.id, matchedPairs.length, true);
+    }
+  }, [matchedPairs]);
+
+  const renderMatching = () => {
+    // For matching, we expect options to be pairs like ["word1", "word2", ...]
+    // and keywords to be the matching translations ["תרגום1", "תרגום2", ...]
+    const leftItems = exercise.keywords || [];
+    const rightItems = shuffledRight;
+    
+    return (
+      <View style={styles.exerciseContent}>
+        <Text style={styles.question}>{exercise.question || 'התאם את הזוגות'}</Text>
+        
+        <View style={styles.matchingPairsContainer}>
+          {/* Left column */}
+          <View style={styles.matchingColumn}>
+            {leftItems.map((item, index) => {
+              const isMatched = matchedPairs.includes(index);
+              const isSelected = selectedLeft === index;
+              
+              return (
+                <TouchableOpacity
+                  key={`left-${index}`}
+                  style={[
+                    styles.matchingPairItem,
+                    isSelected && styles.matchingPairSelected,
+                    isMatched && styles.matchingPairMatched,
+                  ]}
+                  onPress={() => handleMatchingSelect('left', index)}
+                  disabled={isMatched || showFeedback}
+                >
+                  <Text style={[
+                    styles.matchingPairText,
+                    isMatched && styles.matchingPairTextMatched,
+                  ]}>
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        ))}
+          
+          {/* Right column */}
+          <View style={styles.matchingColumn}>
+            {rightItems.map((item, index) => {
+              const isMatched = matchedPairs.includes(item.originalIndex);
+              const isSelected = selectedRight === index;
+              
+              return (
+                <TouchableOpacity
+                  key={`right-${index}`}
+                  style={[
+                    styles.matchingPairItem,
+                    isSelected && styles.matchingPairSelected,
+                    isMatched && styles.matchingPairMatched,
+                  ]}
+                  onPress={() => handleMatchingSelect('right', index)}
+                  disabled={isMatched || showFeedback}
+                >
+                  <Text style={[
+                    styles.matchingPairText,
+                    isMatched && styles.matchingPairTextMatched,
+                  ]}>
+                    {item.text}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+        
+        {matchedPairs.length > 0 && !showFeedback && (
+          <Text style={styles.matchingProgress}>
+            התאמות: {matchedPairs.length}/{leftItems.length}
+          </Text>
+        )}
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderShortAnswer = () => (
     <View style={styles.exerciseContent}>
@@ -469,12 +644,45 @@ export default function ExerciseViewer({
           </TouchableOpacity>
         )}
 
-        {!showFeedback && (
+        {/* Skip, Repetitive, and Bad Reading buttons row */}
+        {!showFeedback && (onSkip || onReportRepetitive || onReportBadReading) && (
+          <View style={styles.skipButtonsRow}>
+            {onSkip && (
+              <TouchableOpacity
+                style={styles.skipButton}
+                onPress={onSkip}
+              >
+                <Text style={styles.skipButtonText}>דלג ▶</Text>
+              </TouchableOpacity>
+            )}
+            {onReportRepetitive && (
+              <TouchableOpacity
+                style={styles.repetitiveButton}
+                onPress={onReportRepetitive}
+              >
+                <Text style={styles.repetitiveButtonText}>🔄 חזרתית</Text>
+              </TouchableOpacity>
+            )}
+            {onReportBadReading && (
+              <TouchableOpacity
+                style={styles.badReadingButton}
+                onPress={onReportBadReading}
+              >
+                <Text style={styles.badReadingButtonText}>📄 קריאה שגויה</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {!showFeedback && exercise.type !== 'matching' && (
           <TouchableOpacity
             style={[styles.button, styles.buttonPrimary]}
             onPress={checkAnswer}
+            disabled={isCheckingAnswer}
           >
-            <Text style={styles.buttonTextPrimary}>בדוק תשובה</Text>
+            <Text style={styles.buttonTextPrimary}>
+              {isCheckingAnswer ? 'בודק...' : 'בדוק תשובה'}
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -655,6 +863,52 @@ const styles = StyleSheet.create({
   matchingText: {
     fontSize: 13,
     color: Colors.text,
+  },
+  // Matching Pairs styles (Duolingo-like)
+  matchingPairsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 16,
+  },
+  matchingColumn: {
+    flex: 1,
+    gap: 12,
+  },
+  matchingPairItem: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 56,
+  },
+  matchingPairSelected: {
+    borderColor: Colors.accent,
+    backgroundColor: '#e3f2fd',
+  },
+  matchingPairMatched: {
+    borderColor: '#4CAF50',
+    backgroundColor: '#e8f5e9',
+    opacity: 0.7,
+  },
+  matchingPairText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    textAlign: 'center',
+  },
+  matchingPairTextMatched: {
+    color: '#4CAF50',
+  },
+  matchingProgress: {
+    textAlign: 'center',
+    marginTop: 16,
+    fontSize: 14,
+    color: '#666',
   },
   shortAnswerInput: {
     marginTop: 16,
@@ -879,5 +1133,64 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     color: '#666',
+  },
+  checkingAnswerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    gap: 8,
+  },
+  checkingAnswerText: {
+    fontSize: 14,
+    color: Colors.accent,
+  },
+  aiFeedbackText: {
+    fontSize: 14,
+    color: '#4CAF50',
+    marginTop: 8,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  skipButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 8,
+  },
+  skipButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  skipButtonText: {
+    fontSize: 14,
+    color: '#999',
+    textDecorationLine: 'underline',
+  },
+  repetitiveButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff3e0',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ff9800',
+  },
+  repetitiveButtonText: {
+    fontSize: 14,
+    color: '#e65100',
+    fontWeight: '500',
+  },
+  badReadingButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#e3f2fd',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2196f3',
+  },
+  badReadingButtonText: {
+    fontSize: 14,
+    color: '#1565c0',
+    fontWeight: '500',
   },
 });
