@@ -26,12 +26,25 @@ export default function RootLayout() {
   const Items = useArrayStore((state) => state.items);
 
   useEffect(() => {
-    // Use Groq API for AI-powered exercise generation (free!)
-    // Get API key from environment variables
+    // Get AI configuration from environment variables
+    const aiProvider = Constants.expoConfig?.extra?.EXPO_PUBLIC_AI_PROVIDER ?? (process.env as any).EXPO_PUBLIC_AI_PROVIDER ?? '';
     const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
+    const ollamaEndpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_ENDPOINT ?? (process.env as any).EXPO_PUBLIC_OLLAMA_ENDPOINT ?? 'http://localhost:11434';
+    const ollamaModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_MODEL ?? (process.env as any).EXPO_PUBLIC_OLLAMA_MODEL ?? 'llama3.2';
 
-    // Initialize AI processor
-    if (groqApiKey) {
+    // Initialize AI processor based on provider
+    if (aiProvider === 'ollama') {
+      // Use Ollama for local AI (no API key needed!)
+      console.log('[AI] initializeAIProcessor -> provider: ollama (local LLM)');
+      initializeAIProcessor({
+        provider: 'ollama',
+        ollamaEndpoint: ollamaEndpoint,
+        model: ollamaModel,
+        // Fallback to Groq if Ollama fails
+        fallbackOpenAIKey: groqApiKey,
+      });
+    } else if (groqApiKey) {
+      // Use Groq API for AI-powered exercise generation (free!)
       console.log('[AI] initializeAIProcessor -> provider: groq');
       initializeAIProcessor({
         provider: 'groq',
@@ -40,11 +53,11 @@ export default function RootLayout() {
       });
     } else {
       // Fallback to local generation if no API key
-      console.log('[AI] initializeAIProcessor -> provider: local (no GROQ API key)');
+      console.log('[AI] initializeAIProcessor -> provider: local (no API key)');
       initializeAIProcessor({
         provider: 'local',
       });
-      console.warn('No GROQ API key found - using local generation');
+      console.warn('No AI provider configured - using basic local generation');
     }
 
     const callsRef = collection(db, 'calls');
