@@ -128,6 +128,40 @@ export default function StudySet() {
     }
   }, [currentSet, user]);
 
+  // Calculate score values before early returns (needed for heart useEffect)
+  const exercises = generatedExercises;
+  const actualQuestionsCount = exercises.length - skippedQuestions.size;
+  const totalCorrect = Object.entries(correctAnswers)
+    .filter(([id, correct]) => !skippedQuestions.has(id) && correct)
+    .length;
+  const scorePercentage = actualQuestionsCount > 0 ? Math.round((totalCorrect / actualQuestionsCount) * 100) : 0;
+
+  // Check if user deserves a heart (100% with no skip/errors/repetitive, hearts <= 4)
+  // This must be before any early returns to follow React Hook rules
+  useEffect(() => {
+    const checkAndAwardHeart = async () => {
+      if (showFinalScore && !heartAwarded) {
+        // Check conditions: 100% score, no skips, no repetitive reports, no bad reading reports
+        const isPerfect = scorePercentage === 100;
+        const noSkips = skippedQuestions.size === 0;
+        const noRepetitive = reportedRepetitive.size === 0;
+        const noBadReading = badReadingCount === 0;
+        const heartsNotFull = (user?.hearts || 0) <= 4;
+
+        console.log('Heart check:', { isPerfect, noSkips, noRepetitive, noBadReading, heartsNotFull, currentHearts: user?.hearts });
+
+        if (isPerfect && noSkips && noRepetitive && noBadReading && heartsNotFull) {
+          const awarded = await addHeart();
+          if (awarded) {
+            setHeartAwarded(true);
+            console.log('Heart awarded for perfect score!');
+          }
+        }
+      }
+    };
+    checkAndAwardHeart();
+  }, [showFinalScore, heartAwarded, scorePercentage, skippedQuestions.size, reportedRepetitive.size, badReadingCount, user?.hearts, addHeart]);
+
   if (loading || isGenerating) {
     return (
       <View style={styles.loadingContainer}>
@@ -157,9 +191,9 @@ export default function StudySet() {
     );
   }
 
-  const exercises = generatedExercises;
+  // exercises is already defined above before early returns
   const currentExercise = exercises[currentExerciseIndex];
-  const progress = ((currentExerciseIndex + 1) / exercises.length) * 100;
+  const progress = exercises.length > 0 ? ((currentExerciseIndex + 1) / exercises.length) * 100 : 0;
 
   const handleAnswerSubmit = (answer: any) => {
     setUserAnswers((prev) => ({
@@ -195,7 +229,7 @@ export default function StudySet() {
   const handleReportRepetitive = async () => {
     // Mark question as reported
     setReportedRepetitive(prev => new Set(prev).add(currentExercise.id));
-    
+
     // Submit feedback to Firebase so AI can learn to avoid similar questions
     if (user) {
       try {
@@ -213,10 +247,10 @@ export default function StudySet() {
         console.error('Error submitting repetitive feedback:', error);
       }
     }
-    
+
     // Show brief confirmation
     Alert.alert('🔄 דווח', 'תודה! השאלה סומנה כחזרתית ולא תופיע שוב', [{ text: 'אוקי' }]);
-    
+
     // Skip to next question (like skip behavior)
     setSkippedQuestions(prev => new Set(prev).add(currentExercise.id));
     if (currentExerciseIndex < exercises.length - 1) {
@@ -236,10 +270,10 @@ export default function StudySet() {
 
     // Save current exercises in case regeneration fails
     const previousExercises = [...generatedExercises];
-    
+
     // Get all previous questions to avoid them
     const previousQuestions = previousExercises.map(ex => ex.question);
-    
+
     setIsGenerating(true);
     setGenerationError(null);
     setBadReadingCount(0); // Reset counter
@@ -328,7 +362,7 @@ export default function StudySet() {
       const shouldRegenerate = window.confirm(
         'דיווחת 3 פעמים על קריאה שגויה.\nהאם לנסות לקרוא את הקובץ מחדש וליצור שאלות חדשות?'
       );
-      
+
       if (shouldRegenerate) {
         regenerateExercises();
       } else {
@@ -351,13 +385,7 @@ export default function StudySet() {
     }
   };
 
-  // Calculate score (excluding skipped questions)
-  const totalAnswered = Object.keys(correctAnswers).filter(id => !skippedQuestions.has(id)).length;
-  const totalCorrect = Object.entries(correctAnswers)
-    .filter(([id, correct]) => !skippedQuestions.has(id) && correct)
-    .length;
-  const actualQuestionsCount = exercises.length - skippedQuestions.size;
-  const scorePercentage = actualQuestionsCount > 0 ? Math.round((totalCorrect / actualQuestionsCount) * 100) : 0;
+  // Score values (totalCorrect, actualQuestionsCount, scorePercentage) are calculated above before early returns
 
   const getScoreEmoji = (percentage: number) => {
     if (percentage >= 90) return '🏆';
@@ -380,30 +408,7 @@ export default function StudySet() {
     }
   };
 
-  // Check if user deserves a heart (100% with no skip/errors/repetitive, hearts <= 4)
-  useEffect(() => {
-    const checkAndAwardHeart = async () => {
-      if (showFinalScore && !heartAwarded) {
-        // Check conditions: 100% score, no skips, no repetitive reports, no bad reading reports
-        const isPerfect = scorePercentage === 100;
-        const noSkips = skippedQuestions.size === 0;
-        const noRepetitive = reportedRepetitive.size === 0;
-        const noBadReading = badReadingCount === 0;
-        const heartsNotFull = (user?.hearts || 0) <= 4;
-
-        console.log('Heart check:', { isPerfect, noSkips, noRepetitive, noBadReading, heartsNotFull, currentHearts: user?.hearts });
-
-        if (isPerfect && noSkips && noRepetitive && noBadReading && heartsNotFull) {
-          const awarded = await addHeart();
-          if (awarded) {
-            setHeartAwarded(true);
-            console.log('Heart awarded for perfect score!');
-          }
-        }
-      }
-    };
-    checkAndAwardHeart();
-  }, [showFinalScore]);
+  // Heart awarding useEffect has been moved above before early returns
 
   // Show final score screen
   if (showFinalScore) {
@@ -412,7 +417,7 @@ export default function StudySet() {
         <View style={styles.scoreContainer}>
           <Text style={styles.scoreEmoji}>{getScoreEmoji(scorePercentage)}</Text>
           <Text style={styles.scoreTitle}>סיימת את הלמידה!</Text>
-          
+
           {/* Heart Award Notice */}
           {heartAwarded && (
             <View style={styles.heartAwardBanner}>
@@ -420,13 +425,13 @@ export default function StudySet() {
               <Text style={styles.heartAwardText}>קיבלת לב! 🎉</Text>
             </View>
           )}
-          
+
           <View style={styles.scoreCard}>
             <Text style={styles.scoreLabel}>הציון שלך</Text>
             <Text style={styles.scoreNumber}>{scorePercentage}</Text>
             <Text style={styles.scoreOutOf}>מתוך 100</Text>
           </View>
-          
+
           <View style={styles.scoreDetails}>
             <View style={styles.scoreDetailRow}>
               <Text style={styles.scoreDetailLabel}>תשובות נכונות:</Text>
@@ -443,9 +448,9 @@ export default function StudySet() {
               <Text style={styles.scoreDetailValue}>{currentSet.subject}</Text>
             </View>
           </View>
-          
+
           <Text style={styles.scoreMessage}>{getScoreMessage(scorePercentage)}</Text>
-          
+
           <View style={styles.scoreButtons}>
             <TouchableOpacity
               style={[styles.scoreButton, styles.scoreButtonPrimary]}
@@ -464,7 +469,7 @@ export default function StudySet() {
               <Ionicons name="refresh" size={20} color="white" />
               <Text style={styles.scoreButtonTextPrimary}>תרגל שוב</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               style={[styles.scoreButton, styles.scoreButtonSecondary]}
               onPress={() => router.back()}
@@ -490,7 +495,7 @@ export default function StudySet() {
           <Text style={styles.subject}>{currentSet.subject}</Text>
         </View>
         {/* Hearts Indicator - clickable to go to my-content */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.heartsIndicator}
           onPress={() => router.push('/(tabs)/my-content')}
         >
@@ -501,7 +506,7 @@ export default function StudySet() {
 
       {/* Hearts Info Banner */}
       {(user?.hearts || 0) < 5 && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.heartsInfoBanner}
           onPress={() => router.push('/(tabs)/my-content')}
         >
@@ -547,7 +552,7 @@ export default function StudySet() {
             // Only count if not already answered
             const isNewAnswer = !userAnswers[id];
             console.log('onAnswer called:', { id, correct, isNewAnswer, currentHearts: user?.hearts });
-            
+
             setUserAnswers((prev) => ({
               ...prev,
               [id]: answer,
@@ -557,13 +562,13 @@ export default function StudySet() {
               [id]: correct,
             }));
             setShowExplanation(true);
-            
+
             // Remove heart if answer is wrong (only for new answers)
             if (isNewAnswer && !correct) {
               console.log('Removing heart! Current hearts:', user?.hearts);
               removeHeart();
             }
-            
+
             // Update completedExercises in Firebase (only for authenticated users and new answers)
             if (isNewAnswer && !isGuest && setId && typeof setId === 'string' && !setId.startsWith('local-')) {
               const newCompletedCount = Object.keys(userAnswers).length + 1;

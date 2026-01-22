@@ -30,7 +30,7 @@ export interface GeneratedExercise {
   type: ExerciseType;
   question: string;
   options?: string[]; // for multiple choice, matching, etc.
-  correctAnswer: string | number | string[];
+  correctAnswer: string | number | string[] | number[];
   explanation: string;
   difficulty: DifficultyLevel;
   topic: string; // specific topic within the content
@@ -106,6 +106,7 @@ export interface AIProcessingRequest {
   targetDifficulty: DifficultyLevel[];
   numberOfExercises: number;
   previousQuestions?: string[]; // Questions already asked to prevent repetition
+  forceNewQuestions?: boolean; // Flag to tell AI to create completely different questions
 }
 
 export interface AIProcessingResponse {
