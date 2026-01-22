@@ -20,8 +20,9 @@ export default function SignIn() {
   const navigation = useNavigation();
   const router = useRouter();
 
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [useUsername, setUseUsername] = useState(false);
 
   const login = useAuthStore((state) => state.login);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -44,13 +45,13 @@ export default function SignIn() {
   }, [isAuthenticated, isGuest]);
 
   const onSignIn = async () => {
-    if (!email || !password) {
+    if (!emailOrUsername || !password) {
       ToastAndroid.show('יש למלא את כל השדות', ToastAndroid.LONG);
       return;
     }
 
     try {
-      await login(email, password);
+      await login(emailOrUsername, password);
       router.replace('/(tabs)');
     } catch (error) {
       console.error('Login failed:', error);
@@ -67,8 +68,31 @@ export default function SignIn() {
       <Text style={styles.title}>בואו נתחבר</Text>
       <Text style={styles.subtitle}>ברוכים הבאים</Text>
 
-      {/* Email Input */}
-      <CustomInput placeholder="הכניסו אימייל" handleTextChange={setEmail} />
+      {/* Toggle between Email and Username */}
+      <View style={styles.toggleContainer}>
+        <TouchableOpacity
+          style={[styles.toggleButton, !useUsername && styles.toggleButtonActive]}
+          onPress={() => setUseUsername(false)}
+        >
+          <Text style={[styles.toggleText, !useUsername && styles.toggleTextActive]}>
+            מייל
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleButton, useUsername && styles.toggleButtonActive]}
+          onPress={() => setUseUsername(true)}
+        >
+          <Text style={[styles.toggleText, useUsername && styles.toggleTextActive]}>
+            משתמש
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Email or Username Input */}
+      <CustomInput
+        placeholder={useUsername ? "הכניסו שם משתמש" : "הכניסו אימייל"}
+        handleTextChange={setEmailOrUsername}
+      />
 
       {/* Password Input */}
       <CustomInput
@@ -136,6 +160,32 @@ const styles = StyleSheet.create({
     color: 'black',
     textAlign: 'center',
     marginBottom: 30,
+  },
+  toggleContainer: {
+    flexDirection: 'row-reverse',
+    gap: 10,
+    marginBottom: 20,
+    justifyContent: 'center',
+  },
+  toggleButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 2,
+    borderColor: '#ccc',
+  },
+  toggleButtonActive: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  toggleTextActive: {
+    color: '#fff',
   },
   inputContainer: {
     marginTop: 10,
