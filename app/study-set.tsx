@@ -25,6 +25,8 @@ export default function StudySet() {
   const { setId } = useLocalSearchParams();
   const user = useAuthStore((state) => state.user);
   const isGuest = useAuthStore((state) => state.isGuest);
+  const addHeart = useAuthStore((state) => state.addHeart);
+  const removeHeart = useAuthStore((state) => state.removeHeart);
   const { currentSet, fetchStudySet, fetchGoodQuestionExamples, submitQuestionFeedback, updateStudySet, loading } = useContentAndStudyStore();
 
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
@@ -38,6 +40,7 @@ export default function StudySet() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [showFinalScore, setShowFinalScore] = useState(false);
+  const [heartAwarded, setHeartAwarded] = useState(false);
 
   // First, load the study set metadata
   useEffect(() => {
@@ -377,6 +380,31 @@ export default function StudySet() {
     }
   };
 
+  // Check if user deserves a heart (100% with no skip/errors/repetitive, hearts <= 4)
+  useEffect(() => {
+    const checkAndAwardHeart = async () => {
+      if (showFinalScore && !heartAwarded) {
+        // Check conditions: 100% score, no skips, no repetitive reports, no bad reading reports
+        const isPerfect = scorePercentage === 100;
+        const noSkips = skippedQuestions.size === 0;
+        const noRepetitive = reportedRepetitive.size === 0;
+        const noBadReading = badReadingCount === 0;
+        const heartsNotFull = (user?.hearts || 0) <= 4;
+
+        console.log('Heart check:', { isPerfect, noSkips, noRepetitive, noBadReading, heartsNotFull, currentHearts: user?.hearts });
+
+        if (isPerfect && noSkips && noRepetitive && noBadReading && heartsNotFull) {
+          const awarded = await addHeart();
+          if (awarded) {
+            setHeartAwarded(true);
+            console.log('Heart awarded for perfect score!');
+          }
+        }
+      }
+    };
+    checkAndAwardHeart();
+  }, [showFinalScore]);
+
   // Show final score screen
   if (showFinalScore) {
     return (
@@ -384,6 +412,14 @@ export default function StudySet() {
         <View style={styles.scoreContainer}>
           <Text style={styles.scoreEmoji}>{getScoreEmoji(scorePercentage)}</Text>
           <Text style={styles.scoreTitle}>סיימת את הלמידה!</Text>
+          
+          {/* Heart Award Notice */}
+          {heartAwarded && (
+            <View style={styles.heartAwardBanner}>
+              <Ionicons name="heart" size={24} color="#ff4757" />
+              <Text style={styles.heartAwardText}>קיבלת לב! 🎉</Text>
+            </View>
+          )}
           
           <View style={styles.scoreCard}>
             <Text style={styles.scoreLabel}>הציון שלך</Text>
@@ -419,6 +455,9 @@ export default function StudySet() {
                 setUserAnswers({});
                 setCorrectAnswers({});
                 setSkippedQuestions(new Set());
+                setReportedRepetitive(new Set());
+                setBadReadingCount(0);
+                setHeartAwarded(false);
                 setShowExplanation(false);
               }}
             >
@@ -450,8 +489,29 @@ export default function StudySet() {
           <Text style={styles.title}>{currentSet.title}</Text>
           <Text style={styles.subject}>{currentSet.subject}</Text>
         </View>
-        <View style={styles.spacer} />
+        {/* Hearts Indicator - clickable to go to my-content */}
+        <TouchableOpacity 
+          style={styles.heartsIndicator}
+          onPress={() => router.push('/(tabs)/my-content')}
+        >
+          <Ionicons name="heart" size={20} color="#ff4757" />
+          <Text style={styles.heartsCount}>{user?.hearts || 0}</Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Hearts Info Banner */}
+      {(user?.hearts || 0) < 5 && (
+        <TouchableOpacity 
+          style={styles.heartsInfoBanner}
+          onPress={() => router.push('/(tabs)/my-content')}
+        >
+          <Ionicons name="information-circle-outline" size={16} color={Colors.accent} />
+          <Text style={styles.heartsInfoText}>
+            תתרגל לימוד כדי לקבל לבבות! (100% ללא דילוג)
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={Colors.accent} />
+        </TouchableOpacity>
+      )}
 
       {/* Generation Error Notice */}
       {generationError && (
@@ -486,6 +546,7 @@ export default function StudySet() {
           onAnswer={(id, answer, correct) => {
             // Only count if not already answered
             const isNewAnswer = !userAnswers[id];
+            console.log('onAnswer called:', { id, correct, isNewAnswer, currentHearts: user?.hearts });
             
             setUserAnswers((prev) => ({
               ...prev,
@@ -496,6 +557,12 @@ export default function StudySet() {
               [id]: correct,
             }));
             setShowExplanation(true);
+            
+            // Remove heart if answer is wrong (only for new answers)
+            if (isNewAnswer && !correct) {
+              console.log('Removing heart! Current hearts:', user?.hearts);
+              removeHeart();
+            }
             
             // Update completedExercises in Firebase (only for authenticated users and new answers)
             if (isNewAnswer && !isGuest && setId && typeof setId === 'string' && !setId.startsWith('local-')) {
@@ -869,5 +936,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.accent,
+  },
+  // Hearts indicator styles
+  heartsIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff0f0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+  },
+  heartsCount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ff4757',
+  },
+  heartsInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  heartsInfoText: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.accent,
+    textAlign: 'right',
+  },
+  heartAwardBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff0f0',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginBottom: 16,
+    gap: 8,
+  },
+  heartAwardText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ff4757',
   },
 });

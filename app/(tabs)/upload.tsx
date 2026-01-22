@@ -577,7 +577,7 @@ export default function UploadContent() {
           onPress={() => router.push('/(tabs)')}
           style={{ alignSelf: 'flex-end' }}
         >
-          <Ionicons name="arrow-forward" size={24} color="black" />
+          <Ionicons name="chevron-forward" size={28} color="black" />
         </TouchableOpacity>
         <Text style={styles.title}>העלאת חומר לימוד</Text>
         <View style={{ width: 40 }} />

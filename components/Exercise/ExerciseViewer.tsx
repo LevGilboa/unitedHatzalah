@@ -11,6 +11,7 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { GeneratedExercise, ExerciseType, FeedbackRating, FeedbackReason } from '@/types/ai-learning';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
@@ -92,11 +93,13 @@ export default function ExerciseViewer({
   const [isCorrect, setIsCorrect] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
+  const [showGuestLoginModal, setShowGuestLoginModal] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [openFeedbackText, setOpenFeedbackText] = useState('');
   const [selectedReason, setSelectedReason] = useState<FeedbackReason | null>(null);
   const [isCheckingAnswer, setIsCheckingAnswer] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<string | null>(null);
+  const scrollViewRef = React.useRef<any>(null);
   
   // Matching pairs state
   const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
@@ -105,6 +108,7 @@ export default function ExerciseViewer({
   const [shuffledRight, setShuffledRight] = useState<{text: string, originalIndex: number}[]>([]);
 
   const user = useAuthStore((state) => state.user);
+  const router = useRouter();
   const { submitQuestionFeedback } = useContentAndStudyStore();
 
   // Reset state when exercise changes
@@ -139,17 +143,17 @@ export default function ExerciseViewer({
   const handleQuestionFeedback = async (rating: FeedbackRating, reason?: FeedbackReason) => {
     if (feedbackGiven || isSubmittingFeedback) return;
     
+    // Check if user is guest (not logged in)
+    if (!user) {
+      setShowReasonModal(false);
+      setShowGuestLoginModal(true);
+      return;
+    }
+    
     // Special handling for bad-reading feedback - delegate to parent
     if (reason === 'bad-reading' && onReportBadReading) {
       setShowReasonModal(false);
       onReportBadReading();
-      return;
-    }
-    
-    // For guests, just mark as given without saving to Firebase
-    if (!user) {
-      setFeedbackGiven(true);
-      setShowReasonModal(false);
       return;
     }
     
@@ -178,6 +182,11 @@ export default function ExerciseViewer({
   };
 
   const handleBadFeedback = () => {
+    // Check if user is guest (not logged in)
+    if (!user) {
+      setShowGuestLoginModal(true);
+      return;
+    }
     setShowReasonModal(true);
   };
 
@@ -229,6 +238,11 @@ export default function ExerciseViewer({
 
     setIsCorrect(isAnswerCorrect);
     setShowFeedback(true);
+
+    // Scroll down to show the next button
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
 
     // Record the answer
     onAnswer(exercise.id, answerToCheck as string | number | string[], isAnswerCorrect);
@@ -372,6 +386,18 @@ export default function ExerciseViewer({
           התשובה הנכונה: {exercise.correctAnswer}
         </Text>
       )}
+      {/* Next button directly in fill-blank after feedback */}
+      {showFeedback && (
+        <TouchableOpacity
+          style={[styles.button, styles.buttonPrimary, { marginTop: 20, paddingVertical: 16 }]}
+          onPress={onNext}
+        >
+          <Text style={[styles.buttonTextPrimary, { fontSize: 18 }]}>
+            {exerciseNumber < totalExercises ? 'הבא →' : 'סיים'}
+          </Text>
+        </TouchableOpacity>
+      )}
+      {showFeedback && <View style={{ height: 40 }} />}
     </View>
   );
 
@@ -518,7 +544,7 @@ export default function ExerciseViewer({
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView ref={scrollViewRef} style={styles.container} contentContainerStyle={styles.contentContainer}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.progressInfo}>
@@ -699,6 +725,52 @@ export default function ExerciseViewer({
       </View>
 
       <View style={{ height: 20 }} />
+      
+      {/* Guest Login Modal */}
+      <Modal
+        visible={showGuestLoginModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowGuestLoginModal(false)}
+      >
+        <View style={styles.guestModalOverlay}>
+          <View style={styles.guestModalContent}>
+            <TouchableOpacity
+              style={styles.guestModalCloseButton}
+              onPress={() => setShowGuestLoginModal(false)}
+            >
+              <Text style={styles.guestModalCloseButtonText}>✕</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.guestModalTitle}>התחברות נדרשת</Text>
+            <Text style={styles.guestModalText}>
+              כדי לשלוח הערות ולשמור את ההתקדמות שלך, אנא התחבר או הירשם.
+            </Text>
+            
+            <View style={styles.guestModalButtonsContainer}>
+              <TouchableOpacity
+                style={styles.guestModalButton}
+                onPress={() => {
+                  setShowGuestLoginModal(false);
+                  router.push('/auth/login');
+                }}
+              >
+                <Text style={styles.guestModalButtonText}>התחברות</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.guestModalButton, styles.guestModalButtonSignup]}
+                onPress={() => {
+                  setShowGuestLoginModal(false);
+                  router.push('/auth/register');
+                }}
+              >
+                <Text style={styles.guestModalButtonTextSignup}>הרשמה</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1192,5 +1264,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1565c0',
     fontWeight: '500',
+  },
+  guestModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  guestModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 380,
+    alignItems: 'center',
+  },
+  guestModalCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  guestModalCloseButtonText: {
+    fontSize: 20,
+    color: '#999',
+    fontWeight: '600',
+  },
+  guestModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  guestModalText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  guestModalButtonsContainer: {
+    width: '100%',
+    gap: 12,
+  },
+  guestModalButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.accent,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  guestModalButtonSignup: {
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+  },
+  guestModalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+  guestModalButtonTextSignup: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.accent,
   },
 });

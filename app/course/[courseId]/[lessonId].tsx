@@ -24,6 +24,8 @@ export default function LessonScreen() {
   const [step, setStep] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
   const [endLesson, setEndLesson] = useState(false);
+  const [startTime] = useState(Date.now()); // Track when lesson started
+  const [timeSpent, setTimeSpent] = useState('0 שניות'); // Track time spent
 
   useEffect(() => {
     if (!lessonId) return;
@@ -127,12 +129,29 @@ export default function LessonScreen() {
 
   const exercise = exercises[step] as Exercise;
 
+  // Calculate time spent when lesson ends
+  const calculateTimeSpent = () => {
+    const elapsed = Date.now() - startTime;
+    const seconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes === 0) {
+      return `${seconds} שניות`;
+    } else if (minutes === 1) {
+      return `דקה ${remainingSeconds > 0 ? `ו-${remainingSeconds} שניות` : ''}`;
+    } else {
+      return `${minutes} דקות${remainingSeconds > 0 ? ` ו-${remainingSeconds} שניות` : ''}`;
+    }
+  };
+
   const handleStepChange = (isCorrect: boolean) => {
     if (!isCorrect) {
       setHeartCount((prevHeartCount) => {
         const newHeartCount = prevHeartCount - 1;
 
         if (newHeartCount <= 0) {
+          setTimeSpent(calculateTimeSpent());
           setEndLesson(true);
           return 0;
         }
@@ -146,6 +165,7 @@ export default function LessonScreen() {
 
     if (newStep >= exercises.length) {
       setTimeout(() => {
+        setTimeSpent(calculateTimeSpent());
         setEndLesson(true);
       }, 1000);
     } else {
@@ -166,7 +186,7 @@ export default function LessonScreen() {
           />
         </>
       ) : (
-        <FinishScreen heartsReaming={heartCount} id={lessonId} />
+        <FinishScreen heartsReaming={heartCount} id={lessonId} committed={timeSpent} />
       )}
     </View>
   );

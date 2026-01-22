@@ -24,7 +24,9 @@ interface AuthState {
   fetchUserData: (userId: string) => Promise<void>;
   updateAvatar: (avatar: string) => void;
   getAllUsers: () => Promise<UserProf[]>;
-    updateProgress: (lessonId: string) => void;
+  updateProgress: (lessonId: string) => void;
+  addHeart: () => Promise<boolean>; // Returns true if heart was added
+  removeHeart: () => Promise<boolean>; // Returns true if heart was removed
 }
 
 // Guest user profile
@@ -338,6 +340,93 @@ export const useAuthStore = create<AuthState>((set) => ({
         Alert.alert('Error', `Failed to update progress: ${error.message}`);
       }
     }
+  },
+
+  addHeart: async () => {
+    const currentUser = useAuthStore.getState().user;
+    const isGuest = useAuthStore.getState().isGuest;
+    
+    if (!currentUser) {
+      console.log('No current user found.');
+      return false;
+    }
+
+    // Check if hearts are already at max (5)
+    if (currentUser.hearts >= 5) {
+      console.log('Hearts already at maximum (5)');
+      return false;
+    }
+
+    const newHearts = currentUser.hearts + 1;
+
+    // Update local state
+    set({
+      user: {
+        ...currentUser,
+        hearts: newHearts,
+      },
+    });
+
+    // If not guest, update Firestore
+    if (!isGuest) {
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        try {
+          const userRef = doc(db, 'users', userId);
+          await setDoc(userRef, { hearts: newHearts }, { merge: true });
+          console.log('Heart added successfully! New count:', newHearts);
+        } catch (error: any) {
+          console.error('Failed to update hearts in Firestore:', error);
+        }
+      }
+    }
+
+    return true;
+  },
+
+  removeHeart: async () => {
+    const currentUser = useAuthStore.getState().user;
+    const isGuest = useAuthStore.getState().isGuest;
+    
+    console.log('removeHeart called! Current user:', currentUser?.name, 'Hearts:', currentUser?.hearts);
+    
+    if (!currentUser) {
+      console.log('No current user found.');
+      return false;
+    }
+
+    // Check if hearts are already at 0
+    if (currentUser.hearts <= 0) {
+      console.log('Hearts already at minimum (0)');
+      return false;
+    }
+
+    const newHearts = currentUser.hearts - 1;
+    console.log('Updating hearts from', currentUser.hearts, 'to', newHearts);
+
+    // Update local state
+    set({
+      user: {
+        ...currentUser,
+        hearts: newHearts,
+      },
+    });
+
+    // If not guest, update Firestore
+    if (!isGuest) {
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        try {
+          const userRef = doc(db, 'users', userId);
+          await setDoc(userRef, { hearts: newHearts }, { merge: true });
+          console.log('Heart removed! New count:', newHearts);
+        } catch (error: any) {
+          console.error('Failed to update hearts in Firestore:', error);
+        }
+      }
+    }
+
+    return true;
   }
   
   

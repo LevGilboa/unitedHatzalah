@@ -6,13 +6,31 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
+  ScrollView,
+  Image,
 } from 'react-native';
-import React from 'react';
+import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '@/constants/Colors';
 import * as FileSystem from 'expo-file-system';
 import { useAuthStore } from '@/stores/authStore';
+
+// Robot avatar options from robohash.org
+const ROBOT_AVATARS = [
+  { id: 'purple-1', url: 'https://robohash.org/mishal-levi', name: 'סגול' },
+  { id: 'red-1', url: 'https://robohash.org/elon-musk', name: 'אדום' },
+  { id: 'orange-1', url: 'https://robohash.org/mark-zuckerberg', name: 'כתום' },
+  { id: 'purple-2', url: 'https://robohash.org/jeff-bezos', name: 'סגול כהה' },
+  { id: 'purple-3', url: 'https://robohash.org/bill-gates', name: 'סגול בהיר' },
+  { id: 'green-1', url: 'https://robohash.org/warren-buffett', name: 'ירוק' },
+  { id: 'blue-1', url: 'https://robohash.org/robot-blue', name: 'כחול' },
+  { id: 'yellow-1', url: 'https://robohash.org/robot-yellow', name: 'צהוב' },
+  { id: 'pink-1', url: 'https://robohash.org/robot-pink', name: 'ורוד' },
+  { id: 'gray-1', url: 'https://robohash.org/robot-gray', name: 'אפור' },
+  { id: 'teal-1', url: 'https://robohash.org/robot-teal', name: 'טורקיז' },
+  { id: 'brown-1', url: 'https://robohash.org/robot-brown', name: 'חום' },
+];
 
 interface ModalImageOptionsProps {
   modalVisible: boolean;
@@ -26,6 +44,7 @@ export default function ModalImageOptions({
   setAvatar,
 }: ModalImageOptionsProps) {
   const updateAvatar = useAuthStore((state) => state.updateAvatar);
+  const [showRobotPicker, setShowRobotPicker] = useState(false);
 
   const handleChoosePhoto = async () => {
     const permissionResult =
@@ -76,8 +95,16 @@ export default function ModalImageOptions({
     }
   };
 
+  const handleSelectRobot = (robotUrl: string) => {
+    setAvatar(robotUrl);
+    updateAvatar(robotUrl);
+    setShowRobotPicker(false);
+    setModalVisible(false);
+  };
+
   const handleResetProfileImage = () => {
     setAvatar('https://robohash.org/default');
+    updateAvatar('https://robohash.org/default');
     setModalVisible(false);
   };
 
@@ -88,52 +115,95 @@ export default function ModalImageOptions({
       visible={modalVisible}
       onRequestClose={() => {
         setModalVisible(false);
+        setShowRobotPicker(false);
       }}
     >
       <Pressable
         style={styles.modalOverlay}
-        onPress={() => setModalVisible(false)}
+        onPress={() => {
+          setModalVisible(false);
+          setShowRobotPicker(false);
+        }}
       >
         <View style={styles.modalContent}>
-          <TouchableOpacity
-            style={styles.modalButton}
-            onPress={handleTakePhoto}
-          >
-            <Ionicons name="camera-outline" size={24} color={Colors.accent} />
-            <Text style={styles.modalButtonText}>תמונה</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.modalButton}
-            onPress={handleChoosePhoto}
-          >
-            <Ionicons name="image-outline" size={24} color={Colors.accent} />
-            <Text style={styles.modalButtonText}>בחירה מגלריה</Text>
-          </TouchableOpacity>
-          {/* Reset to Default Button */}
-          {
-            <TouchableOpacity
-              style={[styles.modalButton, styles.resetButton]}
-              onPress={handleResetProfileImage}
-            >
-              <Ionicons
-                name="refresh-outline"
-                size={24}
-                color={Colors.accent}
-              />
-              <Text style={styles.modalButtonText}>ברירת מחדל</Text>
-            </TouchableOpacity>
-          }
-          <TouchableOpacity
-            style={[styles.modalButton, styles.cancelButton]}
-            onPress={() => setModalVisible(false)}
-          >
-            <Ionicons
-              name="close-circle-outline"
-              size={24}
-              color={Colors.secondary}
-            />
-            <Text style={styles.modalButtonText}>ביטול</Text>
-          </TouchableOpacity>
+          {showRobotPicker ? (
+            // Robot Avatar Picker View
+            <View>
+              <View style={styles.robotPickerHeader}>
+                <TouchableOpacity onPress={() => setShowRobotPicker(false)}>
+                  <Ionicons name="arrow-forward" size={24} color={Colors.accent} />
+                </TouchableOpacity>
+                <Text style={styles.robotPickerTitle}>בחר רובוט</Text>
+                <View style={{ width: 24 }} />
+              </View>
+              <ScrollView 
+                style={styles.robotGrid}
+                contentContainerStyle={styles.robotGridContent}
+              >
+                <View style={styles.robotRow}>
+                  {ROBOT_AVATARS.map((robot) => (
+                    <TouchableOpacity
+                      key={robot.id}
+                      style={styles.robotItem}
+                      onPress={() => handleSelectRobot(robot.url)}
+                    >
+                      <Image source={{ uri: robot.url }} style={styles.robotImage} />
+                      <Text style={styles.robotName}>{robot.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          ) : (
+            // Main Options View
+            <>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleTakePhoto}
+              >
+                <Ionicons name="camera-outline" size={24} color={Colors.accent} />
+                <Text style={styles.modalButtonText}>תמונה</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleChoosePhoto}
+              >
+                <Ionicons name="image-outline" size={24} color={Colors.accent} />
+                <Text style={styles.modalButtonText}>בחירה מגלריה</Text>
+              </TouchableOpacity>
+              {/* Robot Avatar Picker Button */}
+              <TouchableOpacity
+                style={[styles.modalButton, styles.robotButton]}
+                onPress={() => setShowRobotPicker(true)}
+              >
+                <Ionicons name="happy-outline" size={24} color={Colors.accent} />
+                <Text style={styles.modalButtonText}>בחר רובוט</Text>
+              </TouchableOpacity>
+              {/* Reset to Default Button */}
+              <TouchableOpacity
+                style={[styles.modalButton, styles.resetButton]}
+                onPress={handleResetProfileImage}
+              >
+                <Ionicons
+                  name="refresh-outline"
+                  size={24}
+                  color={Colors.accent}
+                />
+                <Text style={styles.modalButtonText}>ברירת מחדל</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setModalVisible(false)}
+              >
+                <Ionicons
+                  name="close-circle-outline"
+                  size={24}
+                  color={Colors.secondary}
+                />
+                <Text style={styles.modalButtonText}>ביטול</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </Pressable>
     </Modal>
@@ -151,6 +221,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    maxHeight: '70%',
   },
   modalButton: {
     flexDirection: 'row-reverse',
@@ -162,6 +233,11 @@ const styles = StyleSheet.create({
     marginRight: 10,
     color: Colors.accent,
   },
+  robotButton: {
+    borderTopWidth: 1,
+    borderColor: '#eee',
+    marginTop: 5,
+  },
   resetButton: {
     borderTopWidth: 1,
     borderColor: Colors.secondary,
@@ -169,5 +245,53 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: 10,
+  },
+  // Robot Picker Styles
+  robotPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    marginBottom: 10,
+  },
+  robotPickerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  robotGrid: {
+    maxHeight: 350,
+  },
+  robotGridContent: {
+    paddingBottom: 20,
+  },
+  robotRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 15,
+  },
+  robotItem: {
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    width: 90,
+  },
+  robotImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff',
+  },
+  robotName: {
+    marginTop: 5,
+    fontSize: 12,
+    color: Colors.text,
+    textAlign: 'center',
   },
 });

@@ -1,68 +1,68 @@
 [
     {
-        "name": "אריאל סיון",
-        "email": "ariel543212@gmail.com",
-        "gems": 100,
+        "name": "מישאל לוי",
+        "email": "mishal.levi@example.com",
+        "gems": 500,
         "hearts": 5,
-        "streak": 2,
-        "avatar": "https://robohash.org/ariel-sivan",
+        "streak": 30,
+        "avatar": "https://robohash.org/mishal-levi",
         "progress": {},
         "badges": [],
-        "xp": 300
+        "xp": 10000
     },
     {
-        "name": "ג'ון דו",
-        "email": "john.doe@example.com",
-        "gems": 150,
+        "name": "אילון מאסק",
+        "email": "elon.musk@example.com",
+        "gems": 450,
         "hearts": 3,
-        "streak": 5,
-        "avatar": "https://robohash.org/john-doe",
+        "streak": 25,
+        "avatar": "https://robohash.org/elon-musk",
         "progress": {},
         "badges": [],
-        "xp": 4030
+        "xp": 8500
     },
     {
-        "name": "ג'יין סמית",
-        "email": "jane.smith@example.com",
-        "gems": 200,
+        "name": "מארק צוקרברג",
+        "email": "mark.zuckerberg@example.com",
+        "gems": 400,
         "hearts": 4,
-        "streak": 1,
-        "avatar": "https://robohash.org/jane-smith",
+        "streak": 20,
+        "avatar": "https://robohash.org/mark-zuckerberg",
         "progress": {},
         "badges": [],
-        "xp": 3040
+        "xp": 7200
     },
     {
-        "name": "אליס ג'ונסון",
-        "email": "alice.johnson@example.com",
-        "gems": 250,
+        "name": "ג'ף בזוס",
+        "email": "jeff.bezos@example.com",
+        "gems": 350,
         "hearts": 6,
-        "streak": 3,
-        "avatar": "https://robohash.org/alice-johnson",
+        "streak": 15,
+        "avatar": "https://robohash.org/jeff-bezos",
         "progress": {},
         "badges": [],
-        "xp": 400
+        "xp": 6000
     },
     {
-        "name": "בוב בראון",
-        "email": "bob.brown@example.com",
+        "name": "ביל גייטס",
+        "email": "bill.gates@example.com",
         "gems": 300,
         "hearts": 2,
-        "streak": 4,
-        "avatar": "https://robohash.org/bob-brown",
+        "streak": 12,
+        "avatar": "https://robohash.org/bill-gates",
         "progress": {},
         "badges": [],
-        "xp": 1230
+        "xp": 5500
     },
     {
-        "name": "צ'ארלי דייוויס",
-        "email": "charlie.davis@example.com",
-        "gems": 350,
+        "name": "וורן באפט",
+        "email": "warren.buffett@example.com",
+        "gems": 250,
         "hearts": 5,
-        "streak": 2,
-        "avatar": "https://robohash.org/charlie-davis",
+        "streak": 10,
+        "avatar": "https://robohash.org/warren-buffett",
         "progress": {},
         "badges": [],
-        "xp": 100
+        "xp": 4800
     }
 ]

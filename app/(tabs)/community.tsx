@@ -1,10 +1,12 @@
 import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, TextInput, Modal } from 'react-native';
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import MockCards from '@/mocks/community';
 import Qcard from '@/components/Community/Qcard';
 import ScrollToTopContainer from '@/components/ui/ScrollToTopContainer';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
+import { useAuthStore } from '@/stores/authStore';
 
 // Time in milliseconds (1 hour = 3600000ms)
 const INACTIVITY_TIMEOUT = 60 * 60 * 1000; // 1 hour
@@ -119,6 +121,77 @@ export default function Discussions() {
       color: '#FFF',
       fontWeight: 'bold',
     },
+    // Guest Modal Styles
+    guestModalContent: {
+      backgroundColor: '#FFF',
+      borderRadius: 16,
+      padding: 24,
+      width: '85%',
+      maxWidth: 380,
+      alignItems: 'center',
+    },
+    closeButton: {
+      position: 'absolute',
+      top: 12,
+      right: 12,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: '#f5f5f5',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 10,
+    },
+    closeButtonText: {
+      fontSize: 20,
+      color: '#999',
+      fontWeight: '600',
+    },
+    guestModalTitle: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: Colors.text,
+      marginBottom: 12,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    guestModalText: {
+      fontSize: 14,
+      color: '#666',
+      marginBottom: 24,
+      textAlign: 'center',
+      lineHeight: 20,
+    },
+    guestModalButtons: {
+      width: '100%',
+      gap: 12,
+    },
+    loginButton: {
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      backgroundColor: Colors.accent,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    loginButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: 'white',
+    },
+    signupButton: {
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      backgroundColor: '#f5f5f5',
+      borderRadius: 8,
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderColor: Colors.accent,
+    },
+    signupButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: Colors.accent,
+    },
   });
 
   // Initialize discussions with lastActivity timestamp
@@ -129,7 +202,11 @@ export default function Discussions() {
     }))
   );
   const [modalVisible, setModalVisible] = useState(false);
+  const [showGuestModal, setShowGuestModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  
+  const user = useAuthStore((state) => state.user);
+  const router = useRouter();
 
   // Check for inactive discussions every minute and remove them
   useEffect(() => {
@@ -183,7 +260,13 @@ export default function Discussions() {
       </ScrollToTopContainer>
 
       {/* Add Discussion Button */}
-      <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
+      <TouchableOpacity style={styles.fab} onPress={() => {
+        if (!user) {
+          setShowGuestModal(true);
+        } else {
+          setModalVisible(true);
+        }
+      }}>
         <Ionicons name="add" size={30} color="#FFF" />
       </TouchableOpacity>
 
@@ -206,6 +289,47 @@ export default function Discussions() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.submitButton} onPress={addDiscussion}>
                 <Text style={styles.submitText}>פרסם</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Guest Login Modal */}
+      <Modal visible={showGuestModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.guestModalContent}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowGuestModal(false)}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.guestModalTitle}>התחברות נדרשת</Text>
+            <Text style={styles.guestModalText}>
+              כדי לפרסם הודעות בקהילה, אנא התחבר או הירשם.
+            </Text>
+            
+            <View style={styles.guestModalButtons}>
+              <TouchableOpacity
+                style={styles.loginButton}
+                onPress={() => {
+                  setShowGuestModal(false);
+                  router.push('/auth/login');
+                }}
+              >
+                <Text style={styles.loginButtonText}>התחברות</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.signupButton}
+                onPress={() => {
+                  setShowGuestModal(false);
+                  router.push('/auth/register');
+                }}
+              >
+                <Text style={styles.signupButtonText}>הרשמה</Text>
               </TouchableOpacity>
             </View>
           </View>

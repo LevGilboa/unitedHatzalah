@@ -1,42 +1,42 @@
 export const mockLeaderboardData = [
   {
-    name: 'יוסי כהן',
-    points: 1500,
+    name: 'מישאל לוי',
+    points: 10000,
   },
   {
-    name: 'דנה לוי',
-    points: 1400,
+    name: 'אילון מאסק',
+    points: 8500,
   },
   {
-    name: 'אבי ישראלי',
-    points: 1350,
+    name: 'מארק צוקרברג',
+    points: 7200,
   },
   {
-    name: 'רונית ברק',
-    points: 1300,
+    name: 'ג\'ף בזוס',
+    points: 6000,
   },
   {
-    name: 'נועם שמש',
-    points: 1250,
+    name: 'ביל גייטס',
+    points: 5500,
   },
   {
-    name: 'אורן חן',
-    points: 1200,
+    name: 'וורן באפט',
+    points: 4800,
   },
   {
-    name: 'טליה פרידמן',
-    points: 1150,
+    name: 'לארי אליסון',
+    points: 4200,
   },
   {
-    name: 'משה בלוך',
-    points: 1100,
+    name: 'סטיב באלמר',
+    points: 3800,
   },
   {
-    name: 'שירה רוזן',
-    points: 1050,
+    name: 'לארי פייג\'',
+    points: 3400,
   },
   {
-    name: 'עומר אבוטבול',
-    points: 1000,
+    name: 'סרגיי ברין',
+    points: 3000,
   },
 ];

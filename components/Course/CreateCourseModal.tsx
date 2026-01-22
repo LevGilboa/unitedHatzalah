@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import {
   COVER_COLORS,
   createLessonFromStudySet,
 } from '@/services/ExerciseConverter';
+import { getAIProcessor } from '@/services/AIContentProcessor';
 
 interface CreateCourseModalProps {
   visible: boolean;
@@ -38,10 +39,14 @@ export default function CreateCourseModal({
   const [selectedColor, setSelectedColor] = useState(COVER_COLORS[0]);
   const [selectedStudySets, setSelectedStudySets] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = useAuthStore((state) => state.user);
   const isGuest = useAuthStore((state) => state.isGuest);
-  const { studySets, localStudySets } = useContentAndStudyStore();
+  const { studySets, localStudySets, setLocalStudySet, createStudySet } = useContentAndStudyStore();
   const { createLocalCourse, createCourse } = useCourseStore();
 
   // Use local study sets for guests, Firebase study sets for authenticated users
@@ -53,13 +58,84 @@ export default function CreateCourseModal({
     );
   };
 
+  // Handle file upload directly in the modal
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      for (const file of Array.from(files)) {
+        const text = await file.text();
+        const fileName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+        
+        // Get AI processor
+        const processor = getAIProcessor();
+        const userId = user?.email || `guest-${Date.now()}`;
+        
+        // Generate exercises from file content
+        const response = await processor.processContent({
+          contentId: `modal-${Date.now()}`,
+          userId,
+          title: fileName,
+          content: text,
+          subject: 'כללי',
+          preferredExerciseTypes: ['multiple-choice', 'fill-blank', 'true-false', 'matching'],
+          targetDifficulty: ['easy', 'medium', 'hard'],
+          numberOfExercises: 10,
+        }, [], []);
+
+        // Create study set
+        const newStudySet: StudySet = {
+          id: `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          contentId: `modal-${Date.now()}`,
+          userId,
+          title: fileName,
+          description: '',
+          subject: 'כללי',
+          exercises: response.exercises || [],
+          totalExercises: response.exercises?.length || 0,
+          completedExercises: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          originalContent: text,
+        };
+
+        if (isGuest) {
+          setLocalStudySet(newStudySet);
+        } else {
+          await createStudySet(newStudySet);
+        }
+      }
+
+      setSuccessMessage(`✓ הקובץ הועלה בהצלחה!`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      setErrorMessage('שגיאה בהעלאת הקובץ');
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleCreate = async () => {
     if (selectedStudySets.length === 0) {
-      Alert.alert('שגיאה', 'נא לבחור לפחות קובץ אחד');
+      setErrorMessage('נא לבחור לפחות קובץ אחד');
+      setTimeout(() => setErrorMessage(null), 3000);
       return;
     }
 
     setIsCreating(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
     
     // Auto-generate course title if not provided
     let finalCourseTitle = courseTitle.trim();
@@ -118,17 +194,20 @@ export default function CreateCourseModal({
       setSelectedStudySets([]);
       setSelectedColor(COVER_COLORS[0]);
 
+      // Show success message instead of alert
+      setSuccessMessage(`הקורס "${finalCourseTitle}" נוצר בהצלחה!`);
+      
       onCourseCreated(courseId);
-      onClose();
-
-      if (Platform.OS === 'web') {
-        alert(`הקורס "${finalCourseTitle}" נוצר בהצלחה!`);
-      } else {
-        Alert.alert('הצלחה', `הקורס "${finalCourseTitle}" נוצר בהצלחה!`);
-      }
+      
+      // Auto close after 1.5 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+        onClose();
+      }, 1500);
     } catch (error) {
       console.error('Error creating course:', error);
-      Alert.alert('שגיאה', 'אירעה שגיאה ביצירת הקורס');
+      setErrorMessage('אירעה שגיאה ביצירת הקורס');
+      setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsCreating(false);
     }
@@ -236,12 +315,66 @@ export default function CreateCourseModal({
               <View style={styles.emptyState}>
                 <Ionicons name="document-outline" size={40} color={Colors.gray} />
                 <Text style={styles.emptyText}>
-                  אין לך קבצים עדיין.{'\n'}העלה קבצים בטאב "העלאה" כדי ליצור קורס.
+                  אין לך קבצים עדיין.
                 </Text>
+                {/* Upload button in empty state */}
+                {Platform.OS === 'web' && (
+                  <>
+                    <input
+                      type="file"
+                      ref={fileInputRef as any}
+                      style={{ display: 'none' }}
+                      accept=".txt,.pdf,.doc,.docx,.pptx,.ppt"
+                      multiple
+                      onChange={handleFileUpload as any}
+                    />
+                    <TouchableOpacity
+                      style={styles.uploadButton}
+                      onPress={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                    >
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <>
+                          <Ionicons name="cloud-upload-outline" size={20} color="white" />
+                          <Text style={styles.uploadButtonText}>העלה קובץ</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             ) : (
               <View style={styles.studySetList}>
                 {availableStudySets.map(renderStudySetItem)}
+                {/* Upload more button when there are files */}
+                {Platform.OS === 'web' && (
+                  <>
+                    <input
+                      type="file"
+                      ref={fileInputRef as any}
+                      style={{ display: 'none' }}
+                      accept=".txt,.pdf,.doc,.docx,.pptx,.ppt"
+                      multiple
+                      onChange={handleFileUpload as any}
+                    />
+                    <TouchableOpacity
+                      style={styles.addMoreButton}
+                      onPress={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                    >
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color={Colors.accent} />
+                      ) : (
+                        <>
+                          <Ionicons name="add-circle-outline" size={20} color={Colors.accent} />
+                          <Text style={styles.addMoreButtonText}>העלה קובץ נוסף</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             )}
           </View>
@@ -254,6 +387,22 @@ export default function CreateCourseModal({
                 כאורח, הקורס יישמר רק עד שתסגור את האפליקציה.
                 התחבר כדי לשמור לצמיתות!
               </Text>
+            </View>
+          )}
+
+          {/* Success Message */}
+          {successMessage && (
+            <View style={styles.successBanner}>
+              <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+              <Text style={styles.successText}>{successMessage}</Text>
+            </View>
+          )}
+
+          {/* Error Message */}
+          {errorMessage && (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle" size={20} color="#f44336" />
+              <Text style={styles.errorText}>{errorMessage}</Text>
             </View>
           )}
 
@@ -442,6 +591,38 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     lineHeight: 20,
   },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 20,
+    gap: 10,
+    justifyContent: 'center',
+  },
+  successText: {
+    fontSize: 16,
+    color: '#2E7D32',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 20,
+    gap: 10,
+    justifyContent: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#C62828',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   footer: {
     padding: 20,
     borderTopWidth: 1,
@@ -463,5 +644,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'white',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    marginTop: 16,
+    gap: 8,
+  },
+  uploadButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'white',
+  },
+  addMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.white,
+    borderWidth: 2,
+    borderColor: Colors.accent,
+    borderStyle: 'dashed',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginTop: 12,
+    gap: 8,
+  },
+  addMoreButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.accent,
   },
 });
