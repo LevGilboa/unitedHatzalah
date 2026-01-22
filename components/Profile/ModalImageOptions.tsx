@@ -59,6 +59,8 @@ export default function ModalImageOptions({
 }: ModalImageOptionsProps) {
   const updateAvatar = useAuthStore((state) => state.updateAvatar);
   const [showRobotPicker, setShowRobotPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [selectedRobot, setSelectedRobot] = useState<string | null>(null);
   const [selectedBgColor, setSelectedBgColor] = useState(BG_COLORS[0].color);
 
   const handleChoosePhoto = async () => {
@@ -112,11 +114,18 @@ export default function ModalImageOptions({
 
   const handleSelectRobot = (robotUrl: string) => {
     // Add background color to the URL
-    const urlWithBg = `${robotUrl}?bgset=any&bgcolor=${selectedBgColor.replace('#', '')}`;
+    const bgHex = selectedBgColor.replace('#', '');
+    const urlWithBg = `${robotUrl}?bgset=any&bgcolor=${bgHex}`;
     setAvatar(urlWithBg);
     updateAvatar(urlWithBg);
     setShowRobotPicker(false);
+    setSelectedRobot(null);
     setModalVisible(false);
+  };
+
+  const handleRobotPress = (robotUrl: string) => {
+    setSelectedRobot(robotUrl);
+    setShowColorPicker(true);
   };
 
   const handleResetProfileImage = () => {
@@ -143,21 +152,35 @@ export default function ModalImageOptions({
         }}
       >
         <View style={styles.modalContent}>
-          {showRobotPicker ? (
-            // Robot Avatar Picker View
-            <View>
+          {showColorPicker && selectedRobot ? (
+            // Color Picker View
+            <View style={{ flex: 1 }}>
               <View style={styles.robotPickerHeader}>
-                <TouchableOpacity onPress={() => setShowRobotPicker(false)}>
+                <TouchableOpacity onPress={() => {
+                  setShowColorPicker(false);
+                  setSelectedRobot(null);
+                }}>
                   <Ionicons name="arrow-forward" size={24} color={Colors.accent} />
                 </TouchableOpacity>
-                <Text style={styles.robotPickerTitle}>בחר רובוט</Text>
+                <Text style={styles.robotPickerTitle}>בחר צבע רקע</Text>
                 <View style={{ width: 24 }} />
               </View>
-              
-              {/* Background Color Picker */}
+
+              {/* Robot Preview with Selected Color */}
+              <View style={[
+                styles.previewContainer,
+                { backgroundColor: selectedBgColor }
+              ]}>
+                <Image
+                  source={{ uri: selectedRobot }}
+                  style={styles.previewImage}
+                />
+              </View>
+
+              {/* Color Options */}
               <Text style={styles.colorPickerLabel}>בחר צבע רקע:</Text>
-              <ScrollView 
-                horizontal 
+              <ScrollView
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 style={styles.colorPickerContainer}
                 contentContainerStyle={styles.colorPickerContent}
@@ -178,6 +201,25 @@ export default function ModalImageOptions({
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+
+              {/* Confirm Button */}
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={() => handleSelectRobot(selectedRobot)}
+              >
+                <Text style={styles.confirmButtonText}>אישור</Text>
+              </TouchableOpacity>
+            </View>
+          ) : showRobotPicker ? (
+            // Robot Avatar Picker View
+            <View>
+              <View style={styles.robotPickerHeader}>
+                <TouchableOpacity onPress={() => setShowRobotPicker(false)}>
+                  <Ionicons name="arrow-forward" size={24} color={Colors.accent} />
+                </TouchableOpacity>
+                <Text style={styles.robotPickerTitle}>בחר רובוט</Text>
+                <View style={{ width: 24 }} />
+              </View>
               
               <ScrollView 
                 style={styles.robotGrid}
@@ -187,8 +229,8 @@ export default function ModalImageOptions({
                   {ROBOT_AVATARS.map((robot) => (
                     <TouchableOpacity
                       key={robot.id}
-                      style={[styles.robotItem, { backgroundColor: selectedBgColor }]}
-                      onPress={() => handleSelectRobot(robot.url)}
+                      style={styles.robotItem}
+                      onPress={() => handleRobotPress(robot.url)}
                     >
                       <Image source={{ uri: robot.url }} style={styles.robotImage} />
                     </TouchableOpacity>
@@ -334,6 +376,33 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
+  },
+  previewContainer: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 15,
+    marginBottom: 20,
+    marginTop: 15,
+  },
+  previewImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 10,
+  },
+  confirmButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   robotGrid: {
     maxHeight: 350,
