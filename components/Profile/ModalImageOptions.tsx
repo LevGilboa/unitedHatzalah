@@ -148,7 +148,6 @@ export default function ModalImageOptions({
                       onPress={() => handleSelectRobot(robot.url)}
                     >
                       <Image source={{ uri: robot.url }} style={styles.robotImage} />
-                      <Text style={styles.robotName}>{robot.name}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
