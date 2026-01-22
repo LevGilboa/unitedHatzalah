@@ -32,6 +32,20 @@ const ROBOT_AVATARS = [
   { id: 'brown-1', url: 'https://robohash.org/robot-brown', name: 'חום' },
 ];
 
+// Background color options
+const BG_COLORS = [
+  { id: 'orange', color: '#F47920', name: 'כתום' },
+  { id: 'blue', color: '#3498db', name: 'כחול' },
+  { id: 'green', color: '#2ecc71', name: 'ירוק' },
+  { id: 'purple', color: '#9b59b6', name: 'סגול' },
+  { id: 'red', color: '#e74c3c', name: 'אדום' },
+  { id: 'teal', color: '#1abc9c', name: 'טורקיז' },
+  { id: 'pink', color: '#e91e63', name: 'ורוד' },
+  { id: 'gray', color: '#54595f', name: 'אפור' },
+  { id: 'yellow', color: '#f1c40f', name: 'צהוב' },
+  { id: 'navy', color: '#2c3e50', name: 'כחול כהה' },
+];
+
 interface ModalImageOptionsProps {
   modalVisible: boolean;
   setAvatar: (avatar: string) => void;
@@ -45,6 +59,7 @@ export default function ModalImageOptions({
 }: ModalImageOptionsProps) {
   const updateAvatar = useAuthStore((state) => state.updateAvatar);
   const [showRobotPicker, setShowRobotPicker] = useState(false);
+  const [selectedBgColor, setSelectedBgColor] = useState(BG_COLORS[0].color);
 
   const handleChoosePhoto = async () => {
     const permissionResult =
@@ -96,8 +111,10 @@ export default function ModalImageOptions({
   };
 
   const handleSelectRobot = (robotUrl: string) => {
-    setAvatar(robotUrl);
-    updateAvatar(robotUrl);
+    // Add background color to the URL
+    const urlWithBg = `${robotUrl}?bgset=any&bgcolor=${selectedBgColor.replace('#', '')}`;
+    setAvatar(urlWithBg);
+    updateAvatar(urlWithBg);
     setShowRobotPicker(false);
     setModalVisible(false);
   };
@@ -136,6 +153,32 @@ export default function ModalImageOptions({
                 <Text style={styles.robotPickerTitle}>בחר רובוט</Text>
                 <View style={{ width: 24 }} />
               </View>
+              
+              {/* Background Color Picker */}
+              <Text style={styles.colorPickerLabel}>בחר צבע רקע:</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.colorPickerContainer}
+                contentContainerStyle={styles.colorPickerContent}
+              >
+                {BG_COLORS.map((bgColor) => (
+                  <TouchableOpacity
+                    key={bgColor.id}
+                    style={[
+                      styles.colorOption,
+                      { backgroundColor: bgColor.color },
+                      selectedBgColor === bgColor.color && styles.colorOptionSelected,
+                    ]}
+                    onPress={() => setSelectedBgColor(bgColor.color)}
+                  >
+                    {selectedBgColor === bgColor.color && (
+                      <Ionicons name="checkmark" size={20} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              
               <ScrollView 
                 style={styles.robotGrid}
                 contentContainerStyle={styles.robotGridContent}
@@ -144,7 +187,7 @@ export default function ModalImageOptions({
                   {ROBOT_AVATARS.map((robot) => (
                     <TouchableOpacity
                       key={robot.id}
-                      style={styles.robotItem}
+                      style={[styles.robotItem, { backgroundColor: selectedBgColor }]}
                       onPress={() => handleSelectRobot(robot.url)}
                     >
                       <Image source={{ uri: robot.url }} style={styles.robotImage} />
@@ -259,6 +302,38 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.text,
+  },
+  colorPickerLabel: {
+    fontSize: 14,
+    color: Colors.text,
+    marginBottom: 10,
+    textAlign: 'right',
+    fontWeight: '600',
+  },
+  colorPickerContainer: {
+    marginBottom: 15,
+  },
+  colorPickerContent: {
+    flexDirection: 'row-reverse',
+    gap: 10,
+    paddingHorizontal: 5,
+  },
+  colorOption: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorOptionSelected: {
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
   },
   robotGrid: {
     maxHeight: 350,
