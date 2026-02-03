@@ -5,6 +5,8 @@ import { Colors } from '@/constants/Colors';
 import { Cross } from './Cross';
 import ProgressBar from './ProgressBar';
 import { useRouter } from 'expo-router';
+import { useAuthStore } from '@/stores/authStore';
+import { isAdmin } from '@/constants/AdminConfig';
 
 interface LessonBarProps {
   heartCount?: number;
@@ -16,6 +18,8 @@ export default function LessonBar({
   progress = 0.5,
 }: LessonBarProps) {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const userIsAdmin = isAdmin(user?.email);
 
   return (
     <View style={styles.container}>
@@ -33,7 +37,7 @@ export default function LessonBar({
 
       {/* Heart */}
       <View style={styles.statItem}>
-        <Text style={styles.statText}>{heartCount}</Text>
+        <Text style={[styles.statText, userIsAdmin && styles.infinityText]}>{userIsAdmin ? '∞' : heartCount}</Text>
         <Heart size={30} />
       </View>
     </View>
@@ -57,5 +61,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.orange,
+  },
+  infinityText: {
+    fontSize: 28,
   },
 });

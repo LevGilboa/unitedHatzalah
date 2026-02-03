@@ -12,6 +12,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
+import { isAdmin } from '@/constants/AdminConfig';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { useAuthStore } from '@/stores/authStore';
 import ExerciseViewer from '@/components/Exercise/ExerciseViewer';
@@ -500,12 +501,14 @@ export default function StudySet() {
           onPress={() => router.push('/(tabs)/my-content')}
         >
           <Ionicons name="heart" size={20} color="#ff4757" />
-          <Text style={styles.heartsCount}>{user?.hearts || 0}</Text>
+          <Text style={[styles.heartsCount, isAdmin(user?.email) && styles.infinityText]}>
+            {isAdmin(user?.email) ? '∞' : (user?.hearts || 0)}
+          </Text>
         </TouchableOpacity>
       </View>
 
       {/* Hearts Info Banner */}
-      {(user?.hearts || 0) < 5 && (
+      {!isAdmin(user?.email) && (user?.hearts || 0) < 5 && (
         <TouchableOpacity
           style={styles.heartsInfoBanner}
           onPress={() => router.push('/(tabs)/my-content')}
@@ -956,6 +959,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#ff4757',
+  },
+  infinityText: {
+    fontSize: 24,
   },
   heartsInfoBanner: {
     flexDirection: 'row',

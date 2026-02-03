@@ -78,14 +78,11 @@ export default function TabLayout() {
             href: null,
           }}
         />
-        {/* פרופיל (Profile) Tab */}
+        {/* פרופיל (Profile) Tab - HIDDEN, moved to settings */}
         <Tabs.Screen
           name="profile"
           options={{
-            title: 'פרופיל',
-            tabBarIcon: ({ color }) => (
-              <Ionicons name="person" size={24} color={color} />
-            ),
+            href: null,
           }}
         />
 

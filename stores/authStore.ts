@@ -7,6 +7,7 @@ import { auth, db } from '@/configs/FirebaseConfig';
 import { doc, setDoc, getDoc, getDocs, collection, arrayUnion, updateDoc } from 'firebase/firestore';
 import { Platform, ToastAndroid ,Alert } from 'react-native';
 import { Badge, UserProf } from '@/types/data';
+import { isAdmin } from '@/constants/AdminConfig';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -393,6 +394,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (!currentUser) {
       console.log('No current user found.');
       return false;
+    }
+
+    // Admins have infinite hearts - never remove
+    if (isAdmin(currentUser.email)) {
+      console.log('Admin user - infinite hearts, skipping removal');
+      return true;
     }
 
     // Check if hearts are already at 0

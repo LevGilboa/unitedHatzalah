@@ -17,6 +17,7 @@ import { Colors } from '@/constants/Colors';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { useAuthStore } from '@/stores/authStore';
 import { UploadedContent, StudySet } from '@/types/ai-learning';
+import { Modal } from 'react-native';
 
 I18nManager.forceRTL(true);
 
@@ -35,6 +36,11 @@ export default function MyContent() {
     deleteStudySet,
   } = useContentAndStudyStore();
 
+  // Delete modal state
+  const [deleteModalVisible, setDeleteModalVisible] = React.useState(false);
+  const [itemToDelete, setItemToDelete] = React.useState<{id: string; title: string; type: 'content' | 'studyset'} | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   // For guests, use localStudySets; for authenticated users, use studySets from Firebase
   const displayStudySets = isGuest ? localStudySets : studySets;
 
@@ -52,76 +58,40 @@ export default function MyContent() {
     }
   };
 
-  const handleDeleteContent = async (contentId: string, title: string) => {
-    const confirmed = Platform.OS === 'web' 
-      ? window.confirm(`האם אתה בטוח שברצונך למחוק את "${title}"?`)
-      : await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            'מחק קובץ',
-            `האם אתה בטוח שברצונך למחוק את "${title}"?`,
-            [
-              { text: 'ביטול', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'מחק', style: 'destructive', onPress: () => resolve(true) },
-            ]
-          );
-        });
+  const handleDeleteContent = (contentId: string, title: string) => {
+    setItemToDelete({ id: contentId, title, type: 'content' });
+    setDeleteModalVisible(true);
+  };
 
-    if (!confirmed) return;
+  const handleDeleteStudySet = (setId: string, title: string) => {
+    setItemToDelete({ id: setId, title, type: 'studyset' });
+    setDeleteModalVisible(true);
+  };
 
+  const confirmDelete = async () => {
+    if (!itemToDelete) return;
+    
+    setDeleting(true);
     try {
-      console.log('Deleting content:', contentId);
-      await deleteContent(contentId);
-      console.log('Content deleted successfully');
-      if (Platform.OS === 'web') {
-        alert('הקובץ נמחק בהצלחה');
+      if (itemToDelete.type === 'content') {
+        await deleteContent(itemToDelete.id);
       } else {
-        Alert.alert('הצלחה', 'הקובץ נמחק בהצלחה');
+        await deleteStudySet(itemToDelete.id);
       }
+      setDeleteModalVisible(false);
+      setItemToDelete(null);
     } catch (err) {
-      console.error('Delete content error:', err);
+      console.error('Delete error:', err);
       const errorMsg = err instanceof Error ? err.message : 'שגיאה לא ידועה';
-      if (Platform.OS === 'web') {
-        alert(`שגיאה: ${errorMsg}`);
-      } else {
-        Alert.alert('שגיאה', `לא הצלח למחוק את הקובץ: ${errorMsg}`);
-      }
+      Alert.alert('שגיאה', `לא הצלח למחוק: ${errorMsg}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
-  const handleDeleteStudySet = async (setId: string, title: string) => {
-    const confirmed = Platform.OS === 'web'
-      ? window.confirm(`האם אתה בטוח שברצונך למחוק את מערך התרגול "${title}"?`)
-      : await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            'מחק מערך תרגול',
-            `האם אתה בטוח שברצונך למחוק את "${title}"?`,
-            [
-              { text: 'ביטול', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'מחק', style: 'destructive', onPress: () => resolve(true) },
-            ]
-          );
-        });
-
-    if (!confirmed) return;
-
-    try {
-      console.log('Deleting study set:', setId);
-      await deleteStudySet(setId);
-      console.log('Study set deleted successfully');
-      if (Platform.OS === 'web') {
-        alert('מערך התרגול נמחק בהצלחה');
-      } else {
-        Alert.alert('הצלחה', 'מערך התרגול נמחק בהצלחה');
-      }
-    } catch (err) {
-      console.error('Delete study set error:', err);
-      const errorMsg = err instanceof Error ? err.message : 'שגיאה לא ידועה';
-      if (Platform.OS === 'web') {
-        alert(`שגיאה: ${errorMsg}`);
-      } else {
-        Alert.alert('שגיאה', `לא הצלח למחוק את מערך התרגול: ${errorMsg}`);
-      }
-    }
+  const cancelDelete = () => {
+    setDeleteModalVisible(false);
+    setItemToDelete(null);
   };
 
   const getStatusIcon = (status: string) => {
@@ -350,6 +320,49 @@ export default function MyContent() {
       )}
 
       <View style={{ height: 40 }} />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelDelete}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteIconContainer}>
+              <Ionicons name="trash" size={40} color="#f44336" />
+            </View>
+            <Text style={styles.deleteModalTitle}>מחיקת {itemToDelete?.type === 'content' ? 'קובץ' : 'מערכת תרגול'}</Text>
+            <Text style={styles.deleteModalText}>
+              האם אתה בטוח שברצונך למחוק את "{itemToDelete?.title}"?
+            </Text>
+            <Text style={styles.deleteModalWarning}>
+              פעולה זו לא ניתנת לביטול
+            </Text>
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity 
+                style={styles.cancelButton} 
+                onPress={cancelDelete}
+                disabled={deleting}
+              >
+                <Text style={styles.cancelButtonText}>ביטול</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.confirmDeleteButton} 
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.confirmDeleteButtonText}>אישור</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -574,5 +587,79 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
     lineHeight: 20,
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  deleteIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#FFEBEE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  deleteModalText: {
+    fontSize: 15,
+    color: Colors.gray,
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  deleteModalWarning: {
+    fontSize: 13,
+    color: '#f44336',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontWeight: '500',
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#E0E0E0',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.textDark,
+  },
+  confirmDeleteButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#f44336',
+    alignItems: 'center',
+  },
+  confirmDeleteButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'white',
   },
 });
