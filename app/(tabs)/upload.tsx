@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import mammoth from 'mammoth';
+import * as mammoth from 'mammoth';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
@@ -124,53 +124,27 @@ const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string
   }
 };
 
-// Helper function to extract text from DOCX locally
-const extractTextFromDocxLocal = async (arrayBuffer: ArrayBuffer): Promise<string> => {
-  try {
-    if (Platform.OS === 'web') {
-      // @ts-ignore - mammoth loaded from package or CDN
-      let mammoth = (window as any).mammoth;
-
-      if (!mammoth) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js';
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('Failed to load Mammoth.js'));
-          document.head.appendChild(script);
-        });
-        mammoth = (window as any).mammoth;
-      }
-
-      const result = await mammoth.extractRawText({ arrayBuffer });
-      return result.value;
-    }
-    throw new Error('DOCX extraction not supported on mobile');
-  } catch (error) {
-    console.error('DOCX extraction error:', error);
-    throw error;
-  }
-};
-
 // Helper function to extract text from Word documents using mammoth
 const extractTextFromWord = async (arrayBuffer: ArrayBuffer): Promise<string> => {
   try {
     console.log('[Word] Starting text extraction...');
-    
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    const text = result.value;
-    
-    console.log(`[Word] Extracted ${text.length} characters`);
-    
-    if (result.messages && result.messages.length > 0) {
-      console.log('[Word] Extraction messages:', result.messages);
+    if (Platform.OS === 'web') {
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      const text = result.value;
+
+      console.log(`[Word] Extracted ${text.length} characters`);
+
+      if (result.messages && result.messages.length > 0) {
+        console.log('[Word] Extraction messages:', result.messages);
+      }
+
+      if (!text || text.trim().length < 50) {
+        throw new Error('EMPTY_DOCUMENT');
+      }
+
+      return text.trim();
     }
-    
-    if (!text || text.trim().length < 50) {
-      throw new Error('EMPTY_DOCUMENT');
-    }
-    
-    return text.trim();
+    throw new Error('Word extraction not supported on mobile');
   } catch (error: any) {
     console.error('[Word] Extraction error:', error);
     if (error.message === 'EMPTY_DOCUMENT') {
@@ -219,10 +193,18 @@ export default function UploadContent() {
   }, [user]);
 
   const handlePickFile = async () => {
+    let isPDF = false;
+    let isWord = false;
     try {
       console.log('Starting file picker...');
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/plain', 'text/*', 'application/pdf'],
+        type: [
+          'text/plain',
+          'text/*',
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/msword'
+        ],
         copyToCacheDirectory: true,
       });
       console.log('File picker result:', result);
@@ -231,28 +213,14 @@ export default function UploadContent() {
         const file = result.assets[0];
         setUploadProgress('קריאת קובץ...');
 
-        const isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
-        const isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
-        
-        // Check if it's Word - show message and stop (PDF is now supported)
-        if (isWord) {
-          setUploadProgress('');
-          Alert.alert(
-            `קובץ Word לא נתמך`,
-            `אנא פתח את המסמך, העתק את הטקסט (Ctrl+A, Ctrl+C), ולחץ על כפתור "הדבק טקסט" למטה.`,
-            [{ text: 'הבנתי' }]
-          );
-          return;
-        }
+        isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
+        isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
 
-        let fileContent = '';
+        let fileContentResult = '';
 
         try {
-          if (isPDF) {
-            // Extract text from PDF locally using pdf.js
-            setUploadProgress('מחלץ טקסט מ-PDF...');
-            console.log('Extracting text from PDF locally...');
-            
+          if (isPDF || isWord) {
+            setUploadProgress(`מחלץ טקסט מ-${isPDF ? 'PDF' : 'Word'}...`);
             let arrayBuffer: ArrayBuffer;
             if (Platform.OS === 'web') {
               if (file.file) {
@@ -265,11 +233,11 @@ export default function UploadContent() {
               }
 
               if (isPDF) {
-                fileContent = await extractTextFromPDFLocal(arrayBuffer);
+                fileContentResult = await extractTextFromPDFLocal(arrayBuffer);
               } else {
-                fileContent = await extractTextFromDocxLocal(arrayBuffer);
+                fileContentResult = await extractTextFromWord(arrayBuffer);
               }
-              console.log(`${isPDF ? 'PDF' : 'DOCX'} text extracted, length:`, fileContent.length);
+              console.log(`${isPDF ? 'PDF' : 'DOCX'} text extracted, length:`, fileContentResult.length);
             } else {
               Alert.alert(
                 'קובץ לא נתמך',
@@ -282,37 +250,30 @@ export default function UploadContent() {
           } else {
             // Handle plain text files
             console.log('Reading text file, Platform:', Platform.OS);
-            console.log('File object:', file);
-            console.log('File.file exists:', !!file.file);
-
             if (Platform.OS === 'web') {
               if (file.file) {
-                console.log('Reading file via file.file.text()...');
-                fileContent = await file.file.text();
-                console.log('File content read, length:', fileContent.length);
+                fileContentResult = await file.file.text();
               } else if (file.uri) {
-                // Fallback: try to fetch the file URI
-                console.log('Trying to fetch file URI:', file.uri);
                 const response = await fetch(file.uri);
-                fileContent = await response.text();
-                console.log('File content fetched, length:', fileContent.length);
+                fileContentResult = await response.text();
               } else {
                 throw new Error('לא ניתן לקרוא את הקובץ בדפדפן זה');
               }
             } else {
-              fileContent = await FileSystem.readAsStringAsync(
+              fileContentResult = await FileSystem.readAsStringAsync(
                 file.uri,
                 { encoding: FileSystem.EncodingType.UTF8 }
               );
             }
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('File reading error:', error);
 
-          const errorMessage = error instanceof Error ? error.message : '';
-          const isQuotaError = errorMessage === 'QUOTA_EXCEEDED' || errorMessage.includes('quota') || errorMessage.includes('429');
+          const errorMessage = error.message || '';
+          const isQuotaError = errorMessage.includes('quota') || errorMessage.includes('429');
           const isScannedPDF = errorMessage === 'SCANNED_PDF';
-          
+          const isEmptyWord = errorMessage === 'EMPTY_DOCUMENT';
+
           if (isScannedPDF) {
             Alert.alert(
               '📷 PDF סרוק',
@@ -325,26 +286,20 @@ export default function UploadContent() {
               'נראה שמסמך ה-Word ריק או מכיל רק תמונות.\n\nאנא העתק את הטקסט ידנית והדבק דרך כפתור "הדבק טקסט".',
               [{ text: 'הבנתי' }]
             );
-          } else if (isWordError) {
-            Alert.alert(
-              'שגיאה בחילוץ Word',
-              'לא הצלחנו לחלץ טקסט מקובץ ה-Word. אנא נסה:\n1. לשמור את הקובץ שוב כ-.docx\n2. או להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
-              [{ text: 'הבנתי' }]
-            );
           } else if (isQuotaError) {
             Alert.alert(
               'מכסת API נגמרה',
-              'המערכת הגיעה למגבלת הבקשות. אנא המתן דקה ונסה שוב, או העתק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
+              'המערכת הגיעה למגבלת הבקשות. אנא המתן דקה ונסה שוב.',
               [{ text: 'הבנתי' }]
             );
           } else {
             Alert.alert(
               'שגיאה בקריאת קובץ',
               isPDF
-                ? 'לא הצלחנו לחלץ טקסט מה-PDF. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".'
+                ? 'לא הצלחנו לחלץ טקסט מה-PDF. אנא נסה להעתיק את הטקסט ידנית.'
                 : isWord
-                  ? 'לא הצלחנו לחלץ טקסט מה-Word. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".'
-                  : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
+                  ? 'לא הצלחנו לחלץ טקסט מה-Word. אנא נסה להעתיק את הטקסט ידנית.'
+                  : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית.',
               [{ text: 'הבנתי' }]
             );
           }
@@ -352,32 +307,34 @@ export default function UploadContent() {
           return;
         }
 
-        if (!fileContent || fileContent.trim().length === 0) {
+        if (!fileContentResult || fileContentResult.trim().length === 0) {
           Alert.alert(
             'קובץ ריק',
-            'הקובץ שבחרת ריק או לא ניתן לקריאה. אנא נסה קובץ אחר או השתמש בכפתור "הדבק טקסט".',
+            'הקובץ שבחרת ריק או לא ניתן לקריאה.',
             [{ text: 'הבנתי' }]
           );
           setUploadProgress('');
           return;
         }
 
-        console.log('File loaded successfully:', file.name, 'Type:', isPDF ? 'pdf' : 'text', 'Content length:', fileContent.length);
-        
+        console.log('File loaded successfully:', file.name, 'Content length:', fileContentResult.length);
+
         setState((prev) => ({
           ...prev,
-          fileContent,
+          fileContent: fileContentResult,
           fileName: file.name,
           fileType: isPDF ? 'pdf' : isWord ? 'document' : 'text',
         }));
 
         setUploadProgress('');
-        Alert.alert('הצלחה', `הקובץ "${file.name}" נטען בהצלחה (${fileContent.length} תווים)`);
+        Alert.alert('הצלחה', `הקובץ "${file.name}" נטען בהצלחה`);
       }
     } catch (error) {
       console.error('Error picking file:', error);
       const errorMsg = error instanceof Error ? error.message : 'אירעה שגיאה בעת בחירת הקובץ';
       Alert.alert('שגיאה', errorMsg);
+    } finally {
+      setUploadProgress('');
     }
   };
 
