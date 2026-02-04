@@ -17,6 +17,7 @@ import { router } from 'expo-router';
 import Avatar from '@/components/Profile/Avatar';
 import ModalImageOptions from '@/components/Profile/ModalImageOptions';
 import NoItem from '@/components/NoItem';
+import { isAdmin } from '@/constants/AdminConfig';
 
 export default function ProfileScreen() {
   const HandleDeleteAccount = async () => {
@@ -136,6 +137,15 @@ export default function ProfileScreen() {
         <CustomButton title="התחבר לחשבון" handlePress={HandleLogin} />
       ) : (
         <>
+          {/* Admin Panel Button - always show for testing */}
+          <View style={styles.adminButton}>
+            <CustomButton
+              title="🔧 ניהול תוכן מחולץ"
+              backgroundColor={Colors.primary}
+              handlePress={() => router.push('/admin')}
+            />
+          </View>
+          
           <CustomButton title="התנתק" handlePress={HandleLogout} />
           
           {/* delete account - only for logged in users */}
@@ -242,5 +252,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
     justifyContent: 'flex-end',
+  },
+  adminButton: {
+    alignItems: 'center',
+    marginBottom: 10,
   },
 });

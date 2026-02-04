@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import mammoth from 'mammoth';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
@@ -22,6 +23,7 @@ import CustomInput from '@/components/ui/CustomInput';
 import { useAuthStore } from '@/stores/authStore';
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { getAIProcessor } from '@/services/AIContentProcessor';
+import { isAdmin } from '@/constants/AdminConfig';
 
 // Helper function to check if extracted text looks like garbage (mostly numbers/gibberish)
 const isGarbageText = (text: string): boolean => {
@@ -150,6 +152,34 @@ const extractTextFromDocxLocal = async (arrayBuffer: ArrayBuffer): Promise<strin
   }
 };
 
+// Helper function to extract text from Word documents using mammoth
+const extractTextFromWord = async (arrayBuffer: ArrayBuffer): Promise<string> => {
+  try {
+    console.log('[Word] Starting text extraction...');
+    
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    const text = result.value;
+    
+    console.log(`[Word] Extracted ${text.length} characters`);
+    
+    if (result.messages && result.messages.length > 0) {
+      console.log('[Word] Extraction messages:', result.messages);
+    }
+    
+    if (!text || text.trim().length < 50) {
+      throw new Error('EMPTY_DOCUMENT');
+    }
+    
+    return text.trim();
+  } catch (error: any) {
+    console.error('[Word] Extraction error:', error);
+    if (error.message === 'EMPTY_DOCUMENT') {
+      throw error;
+    }
+    throw new Error('WORD_EXTRACTION_FAILED');
+  }
+};
+
 I18nManager.forceRTL(true);
 
 interface UploadState {
@@ -177,10 +207,12 @@ export default function UploadContent() {
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pastedText, setPastedText] = useState('');
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
 
   // Debug: Check if user is authenticated
   useEffect(() => {
     console.log('Upload page loaded. User:', user ? user.email : 'Not logged in');
+    console.log('Is admin:', isAdmin(user?.email), 'Email:', user?.email);
     if (!user) {
       console.warn('User not authenticated - upload will not work');
     }
@@ -190,13 +222,7 @@ export default function UploadContent() {
     try {
       console.log('Starting file picker...');
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'text/plain',
-          'text/*',
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/msword'
-        ],
+        type: ['text/plain', 'text/*', 'application/pdf'],
         copyToCacheDirectory: true,
       });
       console.log('File picker result:', result);
@@ -207,13 +233,26 @@ export default function UploadContent() {
 
         const isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
         const isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
+        
+        // Check if it's Word - show message and stop (PDF is now supported)
+        if (isWord) {
+          setUploadProgress('');
+          Alert.alert(
+            `קובץ Word לא נתמך`,
+            `אנא פתח את המסמך, העתק את הטקסט (Ctrl+A, Ctrl+C), ולחץ על כפתור "הדבק טקסט" למטה.`,
+            [{ text: 'הבנתי' }]
+          );
+          return;
+        }
 
-        // PDF and Word are now supported via local extraction
         let fileContent = '';
 
         try {
-          if (isPDF || isWord) {
-            setUploadProgress(`מחלץ טקסט מ-${isPDF ? 'PDF' : 'Word'}...`);
+          if (isPDF) {
+            // Extract text from PDF locally using pdf.js
+            setUploadProgress('מחלץ טקסט מ-PDF...');
+            console.log('Extracting text from PDF locally...');
+            
             let arrayBuffer: ArrayBuffer;
             if (Platform.OS === 'web') {
               if (file.file) {
@@ -273,11 +312,23 @@ export default function UploadContent() {
           const errorMessage = error instanceof Error ? error.message : '';
           const isQuotaError = errorMessage === 'QUOTA_EXCEEDED' || errorMessage.includes('quota') || errorMessage.includes('429');
           const isScannedPDF = errorMessage === 'SCANNED_PDF';
-
+          
           if (isScannedPDF) {
             Alert.alert(
               '📷 PDF סרוק',
               'נראה שה-PDF מכיל תמונות ולא טקסט (PDF סרוק).\n\nמה לעשות:\n1. פתח את ה-PDF במחשב\n2. סמן וגרר את הטקסט (Ctrl+A)\n3. העתק (Ctrl+C)\n4. לחץ "הדבק טקסט" כאן והדבק (Ctrl+V)',
+              [{ text: 'הבנתי' }]
+            );
+          } else if (isEmptyWord) {
+            Alert.alert(
+              '📄 מסמך ריק',
+              'נראה שמסמך ה-Word ריק או מכיל רק תמונות.\n\nאנא העתק את הטקסט ידנית והדבק דרך כפתור "הדבק טקסט".',
+              [{ text: 'הבנתי' }]
+            );
+          } else if (isWordError) {
+            Alert.alert(
+              'שגיאה בחילוץ Word',
+              'לא הצלחנו לחלץ טקסט מקובץ ה-Word. אנא נסה:\n1. לשמור את הקובץ שוב כ-.docx\n2. או להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
               [{ text: 'הבנתי' }]
             );
           } else if (isQuotaError) {
@@ -291,7 +342,9 @@ export default function UploadContent() {
               'שגיאה בקריאת קובץ',
               isPDF
                 ? 'לא הצלחנו לחלץ טקסט מה-PDF. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".'
-                : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
+                : isWord
+                  ? 'לא הצלחנו לחלץ טקסט מה-Word. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".'
+                  : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
               [{ text: 'הבנתי' }]
             );
           }
@@ -310,12 +363,12 @@ export default function UploadContent() {
         }
 
         console.log('File loaded successfully:', file.name, 'Type:', isPDF ? 'pdf' : 'text', 'Content length:', fileContent.length);
-
+        
         setState((prev) => ({
           ...prev,
           fileContent,
           fileName: file.name,
-          fileType: isPDF ? 'pdf' : 'text',
+          fileType: isPDF ? 'pdf' : isWord ? 'document' : 'text',
         }));
 
         setUploadProgress('');
@@ -557,7 +610,17 @@ export default function UploadContent() {
           <Ionicons name="chevron-forward" size={28} color="black" />
         </TouchableOpacity>
         <Text style={styles.title}>העלאת חומר לימוד</Text>
-        <View style={{ width: 40 }} />
+        {/* Admin Button - only visible to admins */}
+        {isAdmin(user?.email) ? (
+          <TouchableOpacity
+            onPress={() => router.push('/admin')}
+            style={styles.adminButton}
+          >
+            <Ionicons name="settings-outline" size={24} color={Colors.accent} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       {/* Title Input */}
@@ -614,6 +677,9 @@ export default function UploadContent() {
       {/* File Upload Section */}
       <View style={styles.section}>
         <Text style={styles.label}>העלאת קובץ</Text>
+        <Text style={styles.fileTypeHint}>
+          📄 ניתן להעלות קבצי PDF ו-Word (docx), אך הקריאה תתבצע במיטבה בקבצי Word
+        </Text>
 
         {state.fileContent ? (
           <View style={styles.uploadedFile}>
@@ -621,19 +687,31 @@ export default function UploadContent() {
             <Text style={styles.uploadedFileSize}>
               {state.fileContent.length} תווים
             </Text>
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() =>
-                setState((prev) => ({
-                  ...prev,
-                  fileContent: '',
-                  fileName: '',
-                }))
-              }
-              disabled={loading}
-            >
-              <Text style={styles.removeButtonText}>הסר</Text>
-            </TouchableOpacity>
+            <View style={styles.uploadedFileButtons}>
+              {isAdmin(user?.email) && (
+                <TouchableOpacity
+                  style={styles.previewButton}
+                  onPress={() => setShowPreviewModal(true)}
+                  disabled={loading}
+                >
+                  <Ionicons name="eye" size={16} color="white" />
+                  <Text style={styles.previewButtonText}>בדיקה</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() =>
+                  setState((prev) => ({
+                    ...prev,
+                    fileContent: '',
+                    fileName: '',
+                  }))
+                }
+                disabled={loading}
+              >
+                <Text style={styles.removeButtonText}>הסר</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <>
@@ -730,6 +808,36 @@ export default function UploadContent() {
           </View>
         </View>
       </Modal>
+
+      {/* Preview Content Modal (Admin Only) */}
+      <Modal
+        visible={showPreviewModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPreviewModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.previewModalContent]}>
+            <View style={styles.previewModalHeader}>
+              <Ionicons name="eye" size={24} color={Colors.accent} />
+              <Text style={styles.modalTitle}>בדיקת תוכן לפני עיבוד</Text>
+            </View>
+            <Text style={styles.previewFileName}>{state.fileName}</Text>
+            <Text style={styles.previewCharCount}>{state.fileContent.length} תווים</Text>
+            <ScrollView style={styles.previewScrollView}>
+              <Text style={styles.previewText} selectable>
+                {state.fileContent}
+              </Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setShowPreviewModal(false)}
+            >
+              <Text style={styles.previewCloseButtonText}>סגור</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -756,6 +864,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.text,
   },
+  adminButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFF3E0',
+  },
   section: {
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -767,6 +880,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.text,
     marginBottom: 12,
+  },
+  fileTypeHint: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   subjectScroll: {
     marginHorizontal: -16,
@@ -902,5 +1022,72 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.text,
+  },
+  uploadedFileButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: Colors.accent,
+    borderRadius: 8,
+  },
+  previewButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  previewModalContent: {
+    maxHeight: '90%',
+  },
+  previewModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  previewFileName: {
+    fontSize: 14,
+    color: Colors.accent,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  previewCharCount: {
+    fontSize: 12,
+    color: Colors.gray,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  previewScrollView: {
+    maxHeight: 400,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#f9f9f9',
+    marginBottom: 16,
+  },
+  previewText: {
+    fontSize: 14,
+    color: Colors.text,
+    textAlign: 'right',
+    lineHeight: 22,
+  },
+  previewCloseButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  previewCloseButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

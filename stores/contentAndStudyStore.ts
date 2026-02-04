@@ -253,6 +253,7 @@ const useContentAndStudyStore = create<ContentAndStudyState>((set, get) => ({
         description: studySet.description || '',
         subject: studySet.subject || '',
         exercises: cleanExercises,
+        originalContent: studySet.originalContent || '', // Save the extracted text
         completedExercises: studySet.completedExercises || 0,
         totalExercises: studySet.totalExercises || 0,
         createdAt: Date.now(),

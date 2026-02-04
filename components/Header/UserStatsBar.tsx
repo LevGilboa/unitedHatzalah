@@ -5,6 +5,8 @@ import DiamondIcon from '@/components/Header/Gems';
 import { Heart } from '@/components/Header/Hearts'; // Import the Heart component
 import { Colors } from '@/constants/Colors';
 import { useAuthStore } from '@/stores/authStore';
+import SettingsButton from '@/components/Settings/SettingsButton';
+import { isAdmin } from '@/constants/AdminConfig';
 
 interface UserStatsProps {
   flameCount: number;
@@ -24,12 +26,17 @@ export default function UserStats({
   diamondCount = user?.gems || 0; // Default gems value if not available
   heartCount = user?.hearts || 0; // Default hearts value if not available
 
+  // Check if user is admin - admins have infinite hearts
+  const userIsAdmin = isAdmin(user?.email);
 
   const diffInMs = Date.now() - flameCount;
   flameCount = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
 
   return (
     <View style={styles.container}>
+      {/* Settings Button */}
+      <SettingsButton color={Colors.white} size={28} />
+
       {/* Flame Streak */}
       <View style={styles.statItem}>
         <FlameStreak size={30} />
@@ -45,7 +52,7 @@ export default function UserStats({
       {/* Heart */}
       <View style={styles.statItem}>
         <Heart size={30} />
-        <Text style={styles.statText}>{heartCount}</Text>
+        <Text style={[styles.statText, userIsAdmin && styles.infinityText]}>{userIsAdmin ? '∞' : heartCount}</Text>
       </View>
     </View>
   );
@@ -80,5 +87,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.white,
+  },
+  infinityText: {
+    fontSize: 28,
+    fontWeight: 'bold',
   },
 });
