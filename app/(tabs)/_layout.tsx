@@ -23,9 +23,21 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: Colors.accent,
-          tabBarInactiveTintColor: 'gray',
-          tabBarStyle: { backgroundColor: Colors.white },
+          tabBarActiveTintColor: Colors.purple,
+          tabBarInactiveTintColor: Colors.gray,
+          tabBarStyle: {
+            backgroundColor: Colors.white,
+            borderTopWidth: 1,
+            borderTopColor: Colors.border,
+            paddingTop: 5,
+            paddingBottom: 5,
+            height: 60,
+            shadowColor: Colors.purple,
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 8,
+            elevation: 10,
+          },
 
           // Align items to have label before icon
           tabBarItemStyle: {
@@ -35,6 +47,7 @@ export default function TabLayout() {
           tabBarLabelStyle: {
             marginRight: 6, // Space between label and icon
             fontSize: 12,
+            fontWeight: '500',
           },
         }}
       >

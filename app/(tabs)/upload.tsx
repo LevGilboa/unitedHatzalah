@@ -26,12 +26,12 @@ import { getAIProcessor } from '@/services/AIContentProcessor';
 // Helper function to check if extracted text looks like garbage (mostly numbers/gibberish)
 const isGarbageText = (text: string): boolean => {
   if (!text || text.length < 50) return false;
-  
+
   // Count different character types
   const digits = (text.match(/\d/g) || []).length;
   const letters = (text.match(/[a-zA-Zא-ת]/g) || []).length;
   const total = text.length;
-  
+
   // Check for specific repeating number patterns (like "11272014" appearing many times)
   const numberMatches = text.match(/\d{6,}/g) || [];
   if (numberMatches.length > 5) {
@@ -46,25 +46,25 @@ const isGarbageText = (text: string): boolean => {
       return true;
     }
   }
-  
+
   // Check for long sequences of numbers (like "11272014 15 11272014 16")
   const longNumberSequences = text.match(/(\d{5,}\s*){3,}/g);
   if (longNumberSequences && longNumberSequences.length > 0) {
     console.log('[PDF] Detected long number sequences - likely garbage');
     return true;
   }
-  
+
   // If more than 30% digits and less than 40% letters, it's probably garbage
   const digitRatio = digits / total;
   const letterRatio = letters / total;
-  
+
   console.log(`[PDF] Text analysis: ${Math.round(digitRatio * 100)}% digits, ${Math.round(letterRatio * 100)}% letters`);
-  
+
   if (digitRatio > 0.3 && letterRatio < 0.4) {
     console.log('[PDF] High digit ratio, low letter ratio - likely garbage');
     return true;
   }
-  
+
   // Check for repeating patterns (like "11272014" repeating many times)
   const words = text.split(/\s+/);
   const wordCounts: Record<string, number> = {};
@@ -73,7 +73,7 @@ const isGarbageText = (text: string): boolean => {
       wordCounts[word] = (wordCounts[word] || 0) + 1;
     }
   }
-  
+
   // If any single "word" repeats more than 10% of all words (and at least 5 times), suspicious
   const maxRepeat = Math.max(...Object.values(wordCounts), 0);
   if (maxRepeat > words.length * 0.1 && maxRepeat >= 5) {
@@ -81,20 +81,18 @@ const isGarbageText = (text: string): boolean => {
     console.log(`[PDF] Word "${repeatingWord}" repeating ${maxRepeat} times - likely garbage`);
     return true;
   }
-  
+
   return false;
 };
 
-// Helper function to extract text from PDF locally using pdf-parse
+// Helper function to extract text from PDF locally
 const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string> => {
   try {
-    // For web, we'll use pdf.js via CDN
     if (Platform.OS === 'web') {
       // @ts-ignore - pdfjsLib loaded from CDN
       let pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
-      
+
       if (!pdfjsLib) {
-        // Load pdf.js dynamically
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement('script');
           script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -103,68 +101,51 @@ const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string
           document.head.appendChild(script);
         });
       }
-      
+
       // @ts-ignore
       const pdfjs = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
       pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      
+
       const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
-      let totalChars = 0;
-      
-      console.log(`[PDF] Document has ${pdf.numPages} pages`);
-      
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        
-        // Better text reconstruction with proper spacing
-        let pageText = '';
-        let lastY = -1;
-        
-        for (const item of textContent.items) {
-          const textItem = item as any;
-          const currentY = textItem.transform ? textItem.transform[5] : 0;
-          
-          // Add newline if Y position changed significantly (different line)
-          if (lastY !== -1 && Math.abs(currentY - lastY) > 5) {
-            pageText += '\n';
-          } else if (pageText.length > 0 && !pageText.endsWith(' ') && !pageText.endsWith('\n')) {
-            pageText += ' ';
-          }
-          
-          pageText += textItem.str;
-          lastY = currentY;
-        }
-        
-        const trimmedPage = pageText.trim();
-        console.log(`[PDF] Page ${i}: ${trimmedPage.length} chars`);
-        totalChars += trimmedPage.length;
-        
-        if (trimmedPage) {
-          fullText += trimmedPage + '\n\n';
-        }
+        fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n\n';
       }
-      
-      console.log(`[PDF] Total extracted: ${totalChars} chars from ${pdf.numPages} pages`);
-      
-      // Check if extraction yielded meaningful content
-      const result = fullText.trim();
-      if (result.length < 100 && pdf.numPages > 0) {
-        // Very little text extracted - probably scanned PDF
-        throw new Error('SCANNED_PDF');
-      }
-      
-      return result;
-    } else {
-      // For native, we need a different approach
-      throw new Error('PDF extraction not supported on mobile - please paste text manually');
+      return fullText.trim();
     }
-  } catch (error: any) {
+    throw new Error('PDF extraction not supported on mobile');
+  } catch (error) {
     console.error('PDF extraction error:', error);
-    if (error.message === 'SCANNED_PDF') {
-      throw error;
+    throw error;
+  }
+};
+
+// Helper function to extract text from DOCX locally
+const extractTextFromDocxLocal = async (arrayBuffer: ArrayBuffer): Promise<string> => {
+  try {
+    if (Platform.OS === 'web') {
+      // @ts-ignore - mammoth loaded from package or CDN
+      let mammoth = (window as any).mammoth;
+
+      if (!mammoth) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load Mammoth.js'));
+          document.head.appendChild(script);
+        });
+        mammoth = (window as any).mammoth;
+      }
+
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value;
     }
+    throw new Error('DOCX extraction not supported on mobile');
+  } catch (error) {
+    console.error('DOCX extraction error:', error);
     throw error;
   }
 };
@@ -209,7 +190,13 @@ export default function UploadContent() {
     try {
       console.log('Starting file picker...');
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/plain', 'text/*', 'application/pdf'],
+        type: [
+          'text/plain',
+          'text/*',
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/msword'
+        ],
         copyToCacheDirectory: true,
       });
       console.log('File picker result:', result);
@@ -220,26 +207,13 @@ export default function UploadContent() {
 
         const isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
         const isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
-        
-        // Check if it's Word - show message and stop (PDF is now supported)
-        if (isWord) {
-          setUploadProgress('');
-          Alert.alert(
-            `קובץ Word לא נתמך`,
-            `אנא פתח את המסמך, העתק את הטקסט (Ctrl+A, Ctrl+C), ולחץ על כפתור "הדבק טקסט" למטה.`,
-            [{ text: 'הבנתי' }]
-          );
-          return;
-        }
 
+        // PDF and Word are now supported via local extraction
         let fileContent = '';
 
         try {
-          if (isPDF) {
-            // Extract text from PDF locally using pdf.js
-            setUploadProgress('מחלץ טקסט מ-PDF...');
-            console.log('Extracting text from PDF locally...');
-            
+          if (isPDF || isWord) {
+            setUploadProgress(`מחלץ טקסט מ-${isPDF ? 'PDF' : 'Word'}...`);
             let arrayBuffer: ArrayBuffer;
             if (Platform.OS === 'web') {
               if (file.file) {
@@ -250,14 +224,17 @@ export default function UploadContent() {
               } else {
                 throw new Error('לא ניתן לקרוא את הקובץ');
               }
-              
-              fileContent = await extractTextFromPDFLocal(arrayBuffer);
-              console.log('PDF text extracted, length:', fileContent.length);
+
+              if (isPDF) {
+                fileContent = await extractTextFromPDFLocal(arrayBuffer);
+              } else {
+                fileContent = await extractTextFromDocxLocal(arrayBuffer);
+              }
+              console.log(`${isPDF ? 'PDF' : 'DOCX'} text extracted, length:`, fileContent.length);
             } else {
-              // Mobile - show message to paste text
               Alert.alert(
-                'קובץ PDF',
-                'חילוץ PDF לא נתמך במובייל. אנא פתח את ה-PDF, העתק את הטקסט והדבק אותו דרך כפתור "הדבק טקסט".',
+                'קובץ לא נתמך',
+                'חילוץ קבצים מורכבים לא נתמך במובייל. אנא העתק והדבק את הטקסט באופן ידני.',
                 [{ text: 'הבנתי' }]
               );
               setUploadProgress('');
@@ -268,7 +245,7 @@ export default function UploadContent() {
             console.log('Reading text file, Platform:', Platform.OS);
             console.log('File object:', file);
             console.log('File.file exists:', !!file.file);
-            
+
             if (Platform.OS === 'web') {
               if (file.file) {
                 console.log('Reading file via file.file.text()...');
@@ -292,11 +269,11 @@ export default function UploadContent() {
           }
         } catch (error) {
           console.error('File reading error:', error);
-          
+
           const errorMessage = error instanceof Error ? error.message : '';
           const isQuotaError = errorMessage === 'QUOTA_EXCEEDED' || errorMessage.includes('quota') || errorMessage.includes('429');
           const isScannedPDF = errorMessage === 'SCANNED_PDF';
-          
+
           if (isScannedPDF) {
             Alert.alert(
               '📷 PDF סרוק',
@@ -312,7 +289,7 @@ export default function UploadContent() {
           } else {
             Alert.alert(
               'שגיאה בקריאת קובץ',
-              isPDF 
+              isPDF
                 ? 'לא הצלחנו לחלץ טקסט מה-PDF. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".'
                 : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית דרך כפתור "הדבק טקסט".',
               [{ text: 'הבנתי' }]
@@ -333,7 +310,7 @@ export default function UploadContent() {
         }
 
         console.log('File loaded successfully:', file.name, 'Type:', isPDF ? 'pdf' : 'text', 'Content length:', fileContent.length);
-        
+
         setState((prev) => ({
           ...prev,
           fileContent,
@@ -378,7 +355,7 @@ export default function UploadContent() {
       subject: state.subject,
       fileContentLength: state.fileContent.length
     });
-    
+
     // Title and subject are optional - AI will generate them if not provided
     if (!state.fileContent.trim()) {
       console.log('Validation failed: missing content');
@@ -393,23 +370,23 @@ export default function UploadContent() {
     console.log('Starting upload process...');
     console.log('User:', user?.email);
     console.log('State:', { title: state.title, subject: state.subject, fileContentLength: state.fileContent.length });
-    
+
     if (!validateForm()) {
       console.log('Form validation failed');
       return;
     }
-    
+
     // No longer require authentication - guest mode is supported
 
     try {
       setLoading(true);
       const isGuest = useAuthStore.getState().isGuest;
       const userId = user?.email || `guest-${Date.now()}`;
-      
+
       // Auto-generate title and subject if not provided
       let finalTitle = state.title.trim();
       let finalSubject = state.subject.trim();
-      
+
       if (!finalTitle || !finalSubject) {
         setUploadProgress('מזהה כותרת ותחום באופן אוטומטי...');
         const processor = getAIProcessor();
@@ -418,9 +395,9 @@ export default function UploadContent() {
         if (!finalSubject) finalSubject = autoGenerated.subject;
         console.log('Auto-generated:', { finalTitle, finalSubject });
       }
-      
+
       let contentId = `local-${Date.now()}`;
-      
+
       if (!isGuest) {
         // Only save to Firebase for authenticated users
         setUploadProgress('העלאת קובץ...');
@@ -437,12 +414,12 @@ export default function UploadContent() {
           uploadedAt: Date.now(),
           status: 'processing',
         });
-        
+
         console.log('Content uploaded successfully, ID:', contentId);
       } else {
         console.log('Guest mode - skipping Firebase upload');
       }
-      
+
       setUploadProgress('עיבוד התוכן בעזרת AI...');
 
       // Fetch good question examples for this subject to improve AI generation
@@ -498,13 +475,13 @@ export default function UploadContent() {
       });
 
       let setId: string;
-      
+
       if (!isGuest) {
         // Save to Firebase for authenticated users
         const { createStudySet } = useContentAndStudyStore.getState();
         setId = await createStudySet(studySetData);
         console.log('Study set created in Firebase, ID:', setId);
-        
+
         // Update content status
         await updateContentStatus(contentId, 'completed');
       } else {
@@ -683,6 +660,15 @@ export default function UploadContent() {
               handlePress={() => router.push('/(tabs)/my-content')}
               disabled={loading}
               backgroundColor="#4CAF50"
+            />
+            <View style={styles.dividerContainer}>
+              <Text style={styles.divider}>או</Text>
+            </View>
+            <CustomButton
+              title="🚀 בניית קורס מלא (5 שלבים)"
+              handlePress={() => router.push('/create-complete-course' as any)}
+              disabled={loading}
+              backgroundColor={Colors.purple}
             />
           </>
         )}

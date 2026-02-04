@@ -17,6 +17,8 @@ import { useAuthStore } from '@/stores/authStore';
 import ExerciseViewer from '@/components/Exercise/ExerciseViewer';
 import { GeneratedExercise } from '@/types/ai-learning';
 import { getAIProcessor } from '@/services/AIContentProcessor';
+import { gameEffects } from '@/services/GameEffects';
+import ConfettiCelebration from '@/components/ConfettiCelebration';
 
 I18nManager.forceRTL(true);
 
@@ -41,6 +43,7 @@ export default function StudySet() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [showFinalScore, setShowFinalScore] = useState(false);
   const [heartAwarded, setHeartAwarded] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   // First, load the study set metadata
   useEffect(() => {
@@ -150,10 +153,17 @@ export default function StudySet() {
 
         console.log('Heart check:', { isPerfect, noSkips, noRepetitive, noBadReading, heartsNotFull, currentHearts: user?.hearts });
 
+        // Play victory effects for high scores
+        if (scorePercentage >= 80) {
+          gameEffects.onVictory();
+          setShowConfetti(true);
+        }
+
         if (isPerfect && noSkips && noRepetitive && noBadReading && heartsNotFull) {
           const awarded = await addHeart();
           if (awarded) {
             setHeartAwarded(true);
+            gameEffects.onLevelUp(); // Play level up sound for earning a heart
             console.log('Heart awarded for perfect score!');
           }
         }
@@ -414,6 +424,13 @@ export default function StudySet() {
   if (showFinalScore) {
     return (
       <View style={styles.container}>
+        {/* Confetti for high scores */}
+        <ConfettiCelebration
+          isActive={showConfetti}
+          duration={4000}
+          pieceCount={60}
+          onComplete={() => setShowConfetti(false)}
+        />
         <View style={styles.scoreContainer}>
           <Text style={styles.scoreEmoji}>{getScoreEmoji(scorePercentage)}</Text>
           <Text style={styles.scoreTitle}>סיימת את הלמידה!</Text>
@@ -463,6 +480,7 @@ export default function StudySet() {
                 setReportedRepetitive(new Set());
                 setBadReadingCount(0);
                 setHeartAwarded(false);
+                setShowConfetti(false);
                 setShowExplanation(false);
               }}
             >
@@ -567,6 +585,7 @@ export default function StudySet() {
             if (isNewAnswer && !correct) {
               console.log('Removing heart! Current hearts:', user?.hearts);
               removeHeart();
+              gameEffects.onHeartLost(); // Play heart lost sound effect
             }
 
             // Update completedExercises in Firebase (only for authenticated users and new answers)

@@ -5,11 +5,11 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 export default {
     expo: {
-        name: "United Hatzalah Learning",
-        slug: "unitedHatzalah",
+        name: "Wizzy",
+        slug: "wizzy",
         version: "1.0.0",
         orientation: "portrait",
-        icon: "./assets/images/Effy/excited.png",
+        icon: "./assets/images/wizzy-icon.png",
         userInterfaceStyle: "automatic",
         newArchEnabled: true,
         ios: {
@@ -21,8 +21,8 @@ export default {
         },
         android: {
             adaptiveIcon: {
-                foregroundImage: "./assets/images/adaptive-icon.png",
-                backgroundColor: "#ffffff"
+                foregroundImage: "./assets/images/wizzy-icon.png",
+                backgroundColor: "#C4B5E0"
             },
             permissions: [
                 "android.permission.CAMERA",
@@ -34,7 +34,7 @@ export default {
         web: {
             bundler: "metro",
             output: "static",
-            favicon: "./assets/images/Effy/icon.png"
+            favicon: "./assets/images/wizzy-favicon.png"
         },
         plugins: [
             "expo-router",

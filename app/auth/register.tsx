@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ToastAndroid,
   I18nManager,
+  ImageBackground,
 } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import { useNavigation, useRouter } from 'expo-router';
@@ -52,66 +53,79 @@ export default function SignUp() {
   };
 
   return (
-    <View style={styles.container}>
-      <BackArrow />
+    <ImageBackground
+      source={require('@/assets/login_background.png')}
+      style={styles.background}
+    >
+      <View style={styles.container}>
+        <BackArrow />
 
-      <Text style={styles.title}>צרו משתמש חדש!</Text>
-      <Text style={styles.subtitle}>מחכים לכם</Text>
+        <Text style={styles.title}>צרו משתמש חדש!</Text>
+        <Text style={styles.subtitle}>מחכים לכם</Text>
 
-      {/* Full Name*/}
+        {/* Full Name*/}
 
-      <CustomInput placeholder="הכניסו שם מלא" handleTextChange={setFullName} />
+        <CustomInput placeholder="הכניסו שם מלא" handleTextChange={setFullName} />
 
-      {/* Email Input */}
+        {/* Email Input */}
 
-      <CustomInput placeholder="הכניסו אימייל" handleTextChange={setEmail} />
+        <CustomInput placeholder="הכניסו אימייל" handleTextChange={setEmail} />
 
-      {/* Password Input */}
+        {/* Password Input */}
 
-      <CustomInput placeholder="הכניסו סיסמה" handleTextChange={setPassword} secureTextEntry={true} />
+        <CustomInput placeholder="הכניסו סיסמה" handleTextChange={setPassword} secureTextEntry={true} />
 
-      {/* Sign In Button */}
+        {/* Sign In Button */}
 
-      <CustomButton
-        backgroundColor={Colors.blue}
-        title={'צור חשבון'}
-        handlePress={onCreateAccount}
-      ></CustomButton>
+        <CustomButton
+          backgroundColor={Colors.purple}
+          title={'צור חשבון'}
+          handlePress={onCreateAccount}
+        ></CustomButton>
 
-      <View style={styles.divider}>
-        <View style={styles.line} />
-        <Text style={styles.dividerSpan}>או</Text>
-        <View style={styles.line} />
+        <View style={styles.divider}>
+          <View style={styles.line} />
+          <Text style={styles.dividerSpan}>או</Text>
+          <View style={styles.line} />
+        </View>
+
+        {/* Create Account Button */}
+
+        <CustomButton
+          backgroundColor={Colors.white}
+          color={Colors.purple}
+          title={'התחבר'}
+          handlePress={() => router.replace('/auth/login')}
+        ></CustomButton>
       </View>
-
-      {/* Create Account Button */}
-
-      <CustomButton
-        backgroundColor={Colors.white}
-        title={'התחבר'}
-        handlePress={() => router.replace('/auth/login')}
-      ></CustomButton>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  background: {
+    flex: 1,
+    resizeMode: 'cover',
+  },
   container: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
     padding: 30,
     height: '100%',
-    backgroundColor: Colors.accent,
     gap: 10,
   },
 
   title: {
+    marginTop: 80,
     fontSize: 32,
     marginBottom: 10,
-    color: 'white',
+    color: Colors.textDark,
     textAlign: 'center',
+    fontWeight: 'bold',
   },
   subtitle: {
     fontSize: 24,
-    color: Colors.white,
+    color: Colors.gray,
     textAlign: 'center',
     marginBottom: 30,
   },

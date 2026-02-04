@@ -146,3 +146,139 @@ export interface QuestionQualityMetrics {
   negativeRatings: number;
   qualityScore: number; // calculated: correctRate * 0.5 + positiveRatio * 0.5
 }
+
+// ============================================
+// COMPREHENSIVE COURSE SYSTEM TYPES
+// ============================================
+
+export type CoursePhaseType =
+  | 'introduction'      // היכרות - שאלות קלות
+  | 'basic-practice'    // תרגול בסיסי
+  | 'deep-understanding'// העמקה 
+  | 'spaced-repetition' // חזרה חכמה
+  | 'final-test';       // מבחן סיכום
+
+export interface CoursePhase {
+  id: string;
+  courseId: string;
+  type: CoursePhaseType;
+  title: string;
+  description: string;
+  order: number;                    // סדר השלב בקורס (1-5)
+  exercises: GeneratedExercise[];
+  requiredScore: number;            // ציון מינימלי להמשך (0-100)
+  isLocked: boolean;                // האם השלב נעול
+  isCompleted: boolean;             // האם הושלם
+  bestScore?: number;               // הציון הטוב ביותר
+  attempts: number;                 // כמה פעמים ניסו
+  estimatedTime: number;            // זמן משוער בדקות
+}
+
+export interface CompleteCourse {
+  id: string;
+  userId: string;
+  contentId: string;
+  title: string;
+  description: string;
+  subject: string;
+  originalContent: string;          // התוכן המקורי
+  summary: string;                  // סיכום התוכן
+  keyTopics: string[];              // נושאים מרכזיים
+  phases: CoursePhase[];            // 5 שלבי הלמידה
+  totalExercises: number;
+  completedExercises: number;
+  overallProgress: number;          // 0-100
+  currentPhase: number;             // השלב הנוכחי (1-5)
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;             // מתי סיימו את הקורס
+  status: 'in-progress' | 'completed' | 'not-started';
+  masteryLevel: number;             // רמת השליטה 0-100
+}
+
+export interface CourseProgress {
+  courseId: string;
+  userId: string;
+  phaseId: string;
+  exerciseId: string;
+  correct: boolean;
+  attemptNumber: number;
+  answeredAt: number;
+  timeSpent: number;                // זמן בשניות
+}
+
+export interface CourseGenerationRequest {
+  contentId: string;
+  userId: string;
+  title: string;
+  content: string;
+  subject: string;
+}
+
+export interface CourseGenerationResponse {
+  course: CompleteCourse;
+  generationTime: number;           // זמן יצירה במילישניות
+  success: boolean;
+  error?: string;
+}
+
+// Phase configuration for course generation
+export interface PhaseConfig {
+  type: CoursePhaseType;
+  title: string;
+  description: string;
+  exerciseCount: number;
+  difficulties: DifficultyLevel[];
+  exerciseTypes: ExerciseType[];
+  requiredScore: number;
+}
+
+// Default phase configurations
+export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
+  {
+    type: 'introduction',
+    title: '📖 היכרות עם החומר',
+    description: 'שאלות קלות להכרת המושגים הבסיסיים',
+    exerciseCount: 5,
+    difficulties: ['easy'],
+    exerciseTypes: ['multiple-choice', 'true-false'],
+    requiredScore: 60,
+  },
+  {
+    type: 'basic-practice',
+    title: '📝 תרגול בסיסי',
+    description: 'העמקת הידע עם שאלות מגוונות',
+    exerciseCount: 10,
+    difficulties: ['easy', 'medium'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false'],
+    requiredScore: 70,
+  },
+  {
+    type: 'deep-understanding',
+    title: '🧠 העמקה',
+    description: 'שאלות מאתגרות לבדיקת הבנה עמוקה',
+    exerciseCount: 10,
+    difficulties: ['medium', 'hard'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'matching', 'ordering'],
+    requiredScore: 75,
+  },
+  {
+    type: 'spaced-repetition',
+    title: '🔄 חזרה חכמה',
+    description: 'חזרה על כל החומר עם דגש על נקודות חלשות',
+    exerciseCount: 10,
+    difficulties: ['easy', 'medium', 'hard'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false', 'matching'],
+    requiredScore: 80,
+  },
+  {
+    type: 'final-test',
+    title: '🏆 מבחן סיכום',
+    description: 'מבחן מקיף על כל החומר - הוכח שאתה שולט!',
+    exerciseCount: 15,
+    difficulties: ['medium', 'hard', 'expert'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'matching', 'ordering', 'short-answer'],
+    requiredScore: 85,
+  },
+];
+

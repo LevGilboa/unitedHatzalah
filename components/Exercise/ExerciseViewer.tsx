@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   Alert,
   TextInput,
   Modal,
+  Animated,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors } from '@/constants/Colors';
@@ -17,6 +19,7 @@ import { GeneratedExercise, ExerciseType, FeedbackRating, FeedbackReason } from 
 import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
 import { useAuthStore } from '@/stores/authStore';
 import { getAIProcessor } from '@/services/AIContentProcessor';
+import { gameEffects } from '@/services/GameEffects';
 
 I18nManager.forceRTL(true);
 
@@ -100,12 +103,12 @@ export default function ExerciseViewer({
   const [isCheckingAnswer, setIsCheckingAnswer] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<string | null>(null);
   const scrollViewRef = React.useRef<any>(null);
-  
+
   // Matching pairs state
   const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
   const [selectedRight, setSelectedRight] = useState<number | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<number[]>([]); // indices of matched left items
-  const [shuffledRight, setShuffledRight] = useState<{text: string, originalIndex: number}[]>([]);
+  const [shuffledRight, setShuffledRight] = useState<{ text: string, originalIndex: number }[]>([]);
 
   const user = useAuthStore((state) => state.user);
   const router = useRouter();
@@ -124,7 +127,7 @@ export default function ExerciseViewer({
     setMatchedPairs([]);
     setIsCheckingAnswer(false);
     setAiFeedback(null);
-    
+
     // Shuffle right side options for matching
     if (exercise.type === 'matching' && exercise.options) {
       const rightOptions = exercise.options.map((opt, idx) => ({
@@ -142,21 +145,21 @@ export default function ExerciseViewer({
 
   const handleQuestionFeedback = async (rating: FeedbackRating, reason?: FeedbackReason) => {
     if (feedbackGiven || isSubmittingFeedback) return;
-    
+
     // Check if user is guest (not logged in)
     if (!user) {
       setShowReasonModal(false);
       setShowGuestLoginModal(true);
       return;
     }
-    
+
     // Special handling for bad-reading feedback - delegate to parent
     if (reason === 'bad-reading' && onReportBadReading) {
       setShowReasonModal(false);
       onReportBadReading();
       return;
     }
-    
+
     setIsSubmittingFeedback(true);
     try {
       await submitQuestionFeedback({
@@ -168,7 +171,7 @@ export default function ExerciseViewer({
         questionType: exercise.type,
         subject: subject,
       });
-      
+
       setFeedbackGiven(true);
       setShowReasonModal(false);
     } catch (error) {
@@ -192,8 +195,8 @@ export default function ExerciseViewer({
 
   const checkAnswer = async () => {
     // For fill-blank and short-answer, use textAnswer
-    const answerToCheck = exercise.type === 'fill-blank' || exercise.type === 'short-answer' 
-      ? textAnswer.trim() 
+    const answerToCheck = exercise.type === 'fill-blank' || exercise.type === 'short-answer'
+      ? textAnswer.trim()
       : selectedAnswer;
 
     if (answerToCheck === null || answerToCheck === '') {
@@ -209,7 +212,7 @@ export default function ExerciseViewer({
       // For text answers, use AI-powered semantic checking
       setIsCheckingAnswer(true);
       setAiFeedback(null);
-      
+
       try {
         const processor = getAIProcessor();
         const result = await processor.checkAnswerWithAI(
@@ -238,6 +241,13 @@ export default function ExerciseViewer({
 
     setIsCorrect(isAnswerCorrect);
     setShowFeedback(true);
+
+    // Play sound and haptic effects based on answer
+    if (isAnswerCorrect) {
+      gameEffects.onCorrectAnswer();
+    } else {
+      gameEffects.onIncorrectAnswer();
+    }
 
     // Scroll down to show the next button
     setTimeout(() => {
@@ -272,8 +282,8 @@ export default function ExerciseViewer({
       <Text style={styles.question}>{exercise.question}</Text>
       {exercise.keywords && exercise.keywords.length > 0 && (
         <Text style={styles.subQuestion}>
-          {Array.isArray(exercise.keywords) 
-            ? exercise.keywords.join(', ') 
+          {Array.isArray(exercise.keywords)
+            ? exercise.keywords.join(', ')
             : String(exercise.keywords)}
         </Text>
       )}
@@ -285,15 +295,18 @@ export default function ExerciseViewer({
               styles.option,
               selectedAnswer === index && styles.optionSelected,
               showFeedback &&
-                index === exercise.correctAnswer &&
-                styles.optionCorrect,
+              index === exercise.correctAnswer &&
+              styles.optionCorrect,
               showFeedback &&
-                selectedAnswer === index &&
-                !isCorrect &&
-                styles.optionIncorrect,
+              selectedAnswer === index &&
+              !isCorrect &&
+              styles.optionIncorrect,
             ]}
             onPress={() => {
-              if (!showFeedback) setSelectedAnswer(index);
+              if (!showFeedback) {
+                gameEffects.onSelect();
+                setSelectedAnswer(index);
+              }
             }}
             disabled={showFeedback}
           >
@@ -319,15 +332,18 @@ export default function ExerciseViewer({
             styles.trueFalseOption,
             selectedAnswer === 'true' && styles.trueFalseOptionSelected,
             showFeedback &&
-              exercise.correctAnswer === 'true' &&
-              styles.optionCorrect,
+            exercise.correctAnswer === 'true' &&
+            styles.optionCorrect,
             showFeedback &&
-              selectedAnswer === 'true' &&
-              !isCorrect &&
-              styles.optionIncorrect,
+            selectedAnswer === 'true' &&
+            !isCorrect &&
+            styles.optionIncorrect,
           ]}
           onPress={() => {
-            if (!showFeedback) setSelectedAnswer('true');
+            if (!showFeedback) {
+              gameEffects.onSelect();
+              setSelectedAnswer('true');
+            }
           }}
           disabled={showFeedback}
         >
@@ -338,15 +354,18 @@ export default function ExerciseViewer({
             styles.trueFalseOption,
             selectedAnswer === 'false' && styles.trueFalseOptionSelected,
             showFeedback &&
-              exercise.correctAnswer === 'false' &&
-              styles.optionCorrect,
+            exercise.correctAnswer === 'false' &&
+            styles.optionCorrect,
             showFeedback &&
-              selectedAnswer === 'false' &&
-              !isCorrect &&
-              styles.optionIncorrect,
+            selectedAnswer === 'false' &&
+            !isCorrect &&
+            styles.optionIncorrect,
           ]}
           onPress={() => {
-            if (!showFeedback) setSelectedAnswer('false');
+            if (!showFeedback) {
+              gameEffects.onSelect();
+              setSelectedAnswer('false');
+            }
           }}
           disabled={showFeedback}
         >
@@ -403,7 +422,7 @@ export default function ExerciseViewer({
 
   const handleMatchingSelect = (side: 'left' | 'right', index: number) => {
     if (showFeedback) return;
-    
+
     if (side === 'left') {
       if (matchedPairs.includes(index)) return; // Already matched
       setSelectedLeft(selectedLeft === index ? null : index);
@@ -417,12 +436,12 @@ export default function ExerciseViewer({
     if (selectedLeft !== null && selectedRight !== null && exercise.type === 'matching') {
       const rightItem = shuffledRight[selectedRight];
       const isMatch = rightItem.originalIndex === selectedLeft;
-      
+
       if (isMatch) {
         // Correct match!
         setMatchedPairs(prev => [...prev, selectedLeft]);
       }
-      
+
       // Reset selections after a short delay
       setTimeout(() => {
         setSelectedLeft(null);
@@ -433,8 +452,8 @@ export default function ExerciseViewer({
 
   // Check if all pairs are matched
   useEffect(() => {
-    if (exercise.type === 'matching' && exercise.options && 
-        matchedPairs.length === exercise.options.length && matchedPairs.length > 0) {
+    if (exercise.type === 'matching' && exercise.options &&
+      matchedPairs.length === exercise.options.length && matchedPairs.length > 0) {
       setShowFeedback(true);
       setIsCorrect(true);
       onAnswer(exercise.id, matchedPairs.length, true);
@@ -446,18 +465,18 @@ export default function ExerciseViewer({
     // and keywords to be the matching translations ["תרגום1", "תרגום2", ...]
     const leftItems = exercise.keywords || [];
     const rightItems = shuffledRight;
-    
+
     return (
       <View style={styles.exerciseContent}>
         <Text style={styles.question}>{exercise.question || 'התאם את הזוגות'}</Text>
-        
+
         <View style={styles.matchingPairsContainer}>
           {/* Left column */}
           <View style={styles.matchingColumn}>
             {leftItems.map((item, index) => {
               const isMatched = matchedPairs.includes(index);
               const isSelected = selectedLeft === index;
-              
+
               return (
                 <TouchableOpacity
                   key={`left-${index}`}
@@ -479,13 +498,13 @@ export default function ExerciseViewer({
               );
             })}
           </View>
-          
+
           {/* Right column */}
           <View style={styles.matchingColumn}>
             {rightItems.map((item, index) => {
               const isMatched = matchedPairs.includes(item.originalIndex);
               const isSelected = selectedRight === index;
-              
+
               return (
                 <TouchableOpacity
                   key={`right-${index}`}
@@ -508,7 +527,7 @@ export default function ExerciseViewer({
             })}
           </View>
         </View>
-        
+
         {matchedPairs.length > 0 && !showFeedback && (
           <Text style={styles.matchingProgress}>
             התאמות: {matchedPairs.length}/{leftItems.length}
@@ -725,7 +744,7 @@ export default function ExerciseViewer({
       </View>
 
       <View style={{ height: 20 }} />
-      
+
       {/* Guest Login Modal */}
       <Modal
         visible={showGuestLoginModal}
@@ -741,12 +760,12 @@ export default function ExerciseViewer({
             >
               <Text style={styles.guestModalCloseButtonText}>✕</Text>
             </TouchableOpacity>
-            
+
             <Text style={styles.guestModalTitle}>התחברות נדרשת</Text>
             <Text style={styles.guestModalText}>
               כדי לשלוח הערות ולשמור את ההתקדמות שלך, אנא התחבר או הירשם.
             </Text>
-            
+
             <View style={styles.guestModalButtonsContainer}>
               <TouchableOpacity
                 style={styles.guestModalButton}
@@ -757,7 +776,7 @@ export default function ExerciseViewer({
               >
                 <Text style={styles.guestModalButtonText}>התחברות</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.guestModalButton, styles.guestModalButtonSignup]}
                 onPress={() => {

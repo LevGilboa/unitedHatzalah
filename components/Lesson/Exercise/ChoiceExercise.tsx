@@ -14,6 +14,7 @@ import { Exercise } from '@/types/data';
 import PressableOption from './PressableOption';
 import AnswerIndex from './AnswerIndex';
 import { getAIProcessor } from '@/services/AIContentProcessor';
+import { gameEffects } from '@/services/GameEffects';
 
 interface ChoiceExerciseProps {
   exercise: Exercise;
@@ -47,11 +48,18 @@ export default function ChoiceExercise({
   const handleAnswerPress = (index: number) => {
     console.log(`[ChoiceExercise] index=${index}, correct=${correct}, typeof correct=${typeof correct}, index===correct: ${index === correct}`);
 
+    // Play selection effect
+    gameEffects.onSelect();
+
     // Ensure correct comparison works for both number and string
     const correctNum = typeof correct === 'number' ? correct : parseInt(String(correct), 10);
     const isCorrect = index === correctNum;
 
-    if (!isCorrect) {
+    // Play correct/incorrect effect
+    if (isCorrect) {
+      gameEffects.onCorrectAnswer();
+    } else {
+      gameEffects.onIncorrectAnswer();
       setCorrectAnswer(answers[correctNum]);
       setModalVisible(true);
     }
@@ -82,12 +90,14 @@ export default function ChoiceExercise({
       setAttemptsLeft(prev => prev - 1);
 
       if (isCorrect) {
+        gameEffects.onCorrectAnswer();
         setFillBlankSubmitted(true);
         setTimeout(() => {
           onAnswerSelected(true);
         }, 500);
       } else if (attemptsLeft <= 1) {
         // No more attempts - show correct answer and move on
+        gameEffects.onIncorrectAnswer();
         setFillBlankSubmitted(true);
         setCorrectAnswer(String(correct));
         setModalVisible(true);

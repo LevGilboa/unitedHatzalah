@@ -13,15 +13,17 @@ import {
  */
 
 interface AIConfig {
-  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local';
+  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama';
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
   zone?: string; // Bright Data Zone name (default: unblocker)
-  // Fallback configuration
+  ollamaEndpoint?: string; // Ollama API endpoint (default: http://localhost:11434)
+  // Fal  lback configuration
   fallbackOpenAIKey?: string;
   fallbackOpenAIModel?: string;
 }
+
 
 class AIContentProcessor {
   private config: AIConfig;
@@ -35,7 +37,7 @@ class AIContentProcessor {
    */
   async generateTitleAndSubject(content: string): Promise<{ title: string; subject: string }> {
     const truncatedContent = content.slice(0, 3000); // Use first 3000 chars for analysis
-    
+
     const prompt = `נתח את הטקסט הבא וצור כותרת קצרה ומתאימה ותחום ידע.
 
 טקסט:
@@ -96,7 +98,7 @@ ${truncatedContent}
       if (response && response.ok) {
         data = await response.json();
         let text = '';
-        
+
         if (this.config.provider === 'groq') {
           text = data.choices?.[0]?.message?.content || '';
         } else if (this.config.provider === 'gemini') {
@@ -355,18 +357,18 @@ ${examples}
       // Separate repetitive questions from other bad examples
       const repetitive = badExamples.filter(ex => ex.reason === 'repetitive');
       const otherBad = badExamples.filter(ex => ex.reason !== 'repetitive');
-      
+
       repetitiveQuestions = repetitive.map(ex => ex.questionText);
-      
+
       if (otherBad.length > 0) {
         const badExamplesList = otherBad
           .slice(0, 3)
           .map((ex) => {
             const reasonText = ex.reason === 'unclear' ? 'לא ברורה' :
-                              ex.reason === 'too-easy' ? 'קלה מדי' :
-                              ex.reason === 'too-hard' ? 'קשה מדי' :
-                              ex.reason === 'wrong-answer' ? 'תשובה שגויה' :
-                              ex.reason === 'not-relevant' ? 'לא רלוונטית' : 'בעייתית';
+              ex.reason === 'too-easy' ? 'קלה מדי' :
+                ex.reason === 'too-hard' ? 'קשה מדי' :
+                  ex.reason === 'wrong-answer' ? 'תשובה שגויה' :
+                    ex.reason === 'not-relevant' ? 'לא רלוונטית' : 'בעייתית';
             return `- "${ex.questionText}" (${reasonText})`;
           })
           .join('\n');
@@ -377,7 +379,7 @@ ${badExamplesList}
 
 הימנע מיצירת שאלות דומות או עם אותן בעיות.`;
       }
-      
+
       if (repetitiveQuestions.length > 0) {
         badExamplesSection += `
 
@@ -404,7 +406,7 @@ ${repetitiveQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n')}`
         .slice(0, 20) // Limit to last 20 questions to save tokens
         .map((q, i) => `${i + 1}. "${q}"`)
         .join('\n');
-      
+
       const forceNew = (request as any).forceNewQuestions;
       previousQuestionsSection = `
 
@@ -1404,16 +1406,16 @@ ${previousQuestionsSection}
   ): GeneratedExercise {
     // Extract key terms and their definitions/translations from content
     const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 15);
-    
+
     // Create 5 pairs for matching (like Duolingo)
     const numPairs = 5;
     const pairs: { left: string; right: string }[] = [];
-    
+
     // Try to extract meaningful pairs from content
     for (let i = 0; i < Math.min(numPairs, sentences.length); i++) {
       const sentence = sentences[(index + i) % sentences.length].trim();
       const words = sentence.split(/\s+/).filter(w => w.length > 2);
-      
+
       if (words.length >= 2) {
         // Use first meaningful word as left, and a related concept as right
         const leftWord = words[0].replace(/[^\u0590-\u05FFa-zA-Z0-9]/g, '');
@@ -1423,7 +1425,7 @@ ${previousQuestionsSection}
         }
       }
     }
-    
+
     // Fill remaining with topic-related placeholders if needed
     while (pairs.length < numPairs) {
       pairs.push({
@@ -1431,7 +1433,7 @@ ${previousQuestionsSection}
         right: `הגדרה ${pairs.length + 1}`
       });
     }
-    
+
     // keywords = left items, options = right items (in same order - will be shuffled in UI)
     const keywords = pairs.map(p => p.left);
     const options = pairs.map(p => p.right);
@@ -1654,7 +1656,7 @@ ${previousQuestionsSection}
     // First, do basic normalization check
     const normalizedUser = this.normalizeAnswer(userAnswer);
     const normalizedCorrect = this.normalizeAnswer(correctAnswer);
-    
+
     // If exact match after normalization, no need for AI
     if (normalizedUser === normalizedCorrect) {
       return { isCorrect: true };
@@ -1704,7 +1706,7 @@ ${previousQuestionsSection}
 
     // Levenshtein distance based similarity
     const matrix: number[][] = [];
-    
+
     for (let i = 0; i <= str1.length; i++) {
       matrix[i] = [i];
     }
@@ -1798,7 +1800,7 @@ ${previousQuestionsSection}
       if (response && response.ok) {
         const data = await response.json();
         let text = '';
-        
+
         if (this.config.provider === 'groq' || this.config.provider === 'openai') {
           text = data.choices?.[0]?.message?.content || '';
         } else if (this.config.provider === 'gemini') {
@@ -1845,7 +1847,7 @@ ${previousQuestionsSection}
       const allForms = [key, ...equivalents].map(s => s.replace(/\s+/g, ''));
       const userNoSpace = normalizedUser.replace(/\s+/g, '');
       const correctNoSpace = normalizedCorrect.replace(/\s+/g, '');
-      
+
       if (allForms.includes(userNoSpace) && allForms.includes(correctNoSpace)) {
         return { isCorrect: true };
       }

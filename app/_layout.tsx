@@ -28,6 +28,7 @@ export default function RootLayout() {
   useEffect(() => {
     // Get AI configuration from environment variables
     const aiProvider = Constants.expoConfig?.extra?.EXPO_PUBLIC_AI_PROVIDER ?? (process.env as any).EXPO_PUBLIC_AI_PROVIDER ?? '';
+    const geminiApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ?? (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY ?? '';
     const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
     const ollamaEndpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_ENDPOINT ?? (process.env as any).EXPO_PUBLIC_OLLAMA_ENDPOINT ?? 'http://localhost:11434';
     const ollamaModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_MODEL ?? (process.env as any).EXPO_PUBLIC_OLLAMA_MODEL ?? 'llama3.2';
@@ -42,6 +43,22 @@ export default function RootLayout() {
         model: ollamaModel,
         // Fallback to Groq if Ollama fails
         fallbackOpenAIKey: groqApiKey,
+      });
+    } else if (aiProvider === 'gemini' && geminiApiKey) {
+      // Use Gemini API for AI-powered exercise generation
+      console.log('[AI] initializeAIProcessor -> provider: gemini');
+      initializeAIProcessor({
+        provider: 'gemini',
+        apiKey: geminiApiKey,
+        model: 'gemini-2.0-flash',
+      });
+    } else if (geminiApiKey) {
+      // Default to Gemini if key is provided (even without explicit provider)
+      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected)');
+      initializeAIProcessor({
+        provider: 'gemini',
+        apiKey: geminiApiKey,
+        model: 'gemini-2.0-flash',
       });
     } else if (groqApiKey) {
       // Use Groq API for AI-powered exercise generation (free!)

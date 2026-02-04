@@ -60,75 +60,76 @@ export default function SignIn() {
 
   return (
     <ImageBackground
-          source={require('@/assets/background.jpg')} // עדכן את הנתיב לפי המיקום המדויק
-          style={styles.background}
-        >
-    <View style={styles.container}>
+      source={require('@/assets/login_background.png')}
+      style={styles.background}
+    >
+      <View style={styles.container}>
 
-      <Text style={styles.title}>בואו נתחבר</Text>
-      <Text style={styles.subtitle}>ברוכים הבאים</Text>
+        <Text style={styles.title}>בואו נתחבר</Text>
+        <Text style={styles.subtitle}>ברוכים הבאים</Text>
 
-      {/* Toggle between Email and Username */}
-      <View style={styles.toggleContainer}>
+        {/* Toggle between Email and Username */}
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            style={[styles.toggleButton, !useUsername && styles.toggleButtonActive]}
+            onPress={() => setUseUsername(false)}
+          >
+            <Text style={[styles.toggleText, !useUsername && styles.toggleTextActive]}>
+              מייל
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleButton, useUsername && styles.toggleButtonActive]}
+            onPress={() => setUseUsername(true)}
+          >
+            <Text style={[styles.toggleText, useUsername && styles.toggleTextActive]}>
+              משתמש
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Email or Username Input */}
+        <CustomInput
+          placeholder={useUsername ? "הכניסו שם משתמש" : "הכניסו אימייל"}
+          handleTextChange={setEmailOrUsername}
+        />
+
+        {/* Password Input */}
+        <CustomInput
+          placeholder="הכניסו סיסמה"
+          handleTextChange={setPassword}
+          secureTextEntry={true}
+        />
+
+        {/* Sign In Button */}
+        <CustomButton
+          backgroundColor={Colors.purple}
+          title={'התחבר'}
+          handlePress={onSignIn}
+        ></CustomButton>
+
+        <View style={styles.divider}>
+          <View style={styles.line} />
+          <Text style={styles.dividerSpan}>או</Text>
+          <View style={styles.line} />
+        </View>
+
+        {/* Create Account Button */}
+        <CustomButton
+          backgroundColor={Colors.white}
+          color={Colors.purple}
+          title={'צור חשבון'}
+          handlePress={() => router.push('/auth/register')}
+        ></CustomButton>
+
+        {/* אייקון דלת */}
         <TouchableOpacity
-          style={[styles.toggleButton, !useUsername && styles.toggleButtonActive]}
-          onPress={() => setUseUsername(false)}
+          style={styles.iconButton}
+          onPress={() => router.push('/(tabs)')}
         >
-          <Text style={[styles.toggleText, !useUsername && styles.toggleTextActive]}>
-            מייל
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleButton, useUsername && styles.toggleButtonActive]}
-          onPress={() => setUseUsername(true)}
-        >
-          <Text style={[styles.toggleText, useUsername && styles.toggleTextActive]}>
-            משתמש
-          </Text>
+          <Ionicons name="exit-outline" size={28} color={Colors.purple} />
         </TouchableOpacity>
       </View>
-
-      {/* Email or Username Input */}
-      <CustomInput
-        placeholder={useUsername ? "הכניסו שם משתמש" : "הכניסו אימייל"}
-        handleTextChange={setEmailOrUsername}
-      />
-
-      {/* Password Input */}
-      <CustomInput
-        placeholder="הכניסו סיסמה"
-        handleTextChange={setPassword}
-        secureTextEntry={true}
-      />
-
-      {/* Sign In Button */}
-      <CustomButton
-        backgroundColor={Colors.accent}
-        title={'התחבר'}
-        handlePress={onSignIn}
-      ></CustomButton>
-
-      <View style={styles.divider}>
-        <View style={styles.line} />
-        <Text style={styles.dividerSpan}>או</Text>
-        <View style={styles.line} />
-      </View>
-
-      {/* Create Account Button */}
-      <CustomButton
-        backgroundColor={Colors.accent}
-        title={'צור חשבון'}
-        handlePress={() => router.push('/auth/register')}
-      ></CustomButton>
-
-      {/* אייקון דלת */}
-      <TouchableOpacity
-        style={styles.iconButton}
-        onPress={() => router.push('/(tabs)')}
-      >
-        <Ionicons name="exit-outline" size={28} color={Colors.orange} />
-      </TouchableOpacity>
-    </View>
     </ImageBackground>
   );
 }
@@ -176,8 +177,8 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
   },
   toggleButtonActive: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
+    backgroundColor: Colors.purple,
+    borderColor: Colors.purple,
   },
   toggleText: {
     fontSize: 14,
