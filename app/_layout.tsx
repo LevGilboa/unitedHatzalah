@@ -44,6 +44,17 @@ export default function RootLayout() {
         // Fallback to Groq if Ollama fails
         fallbackOpenAIKey: groqApiKey,
       });
+    } else if (aiProvider === 'huggingface') {
+      // Use Hugging Face Inference API
+      const hfApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? '';
+      const hfModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_MODEL ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_MODEL ?? 'meta-llama/Meta-Llama-3-8B-Instruct';
+
+      console.log('[AI] initializeAIProcessor -> provider: huggingface');
+      initializeAIProcessor({
+        provider: 'huggingface',
+        apiKey: hfApiKey,
+        model: hfModel,
+      });
     } else if (aiProvider === 'gemini' && geminiApiKey) {
       // Use Gemini API for AI-powered exercise generation
       console.log('[AI] initializeAIProcessor -> provider: gemini');

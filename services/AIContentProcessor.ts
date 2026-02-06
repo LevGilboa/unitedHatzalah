@@ -13,7 +13,7 @@ import {
  */
 
 interface AIConfig {
-  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama';
+  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama' | 'huggingface';
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
@@ -53,7 +53,7 @@ ${truncatedContent}
 
     try {
       // Try with AI if available
-      if (this.config.provider !== 'local' && this.config.apiKey) {
+      if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'ollama')) {
         const result = await this.callAIForTitleSubject(prompt);
         if (result) return result;
       }
@@ -93,6 +93,32 @@ ${truncatedContent}
             generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
           }),
         });
+      } else if (this.config.provider === 'ollama') {
+        const endpoint = this.config.ollamaEndpoint || 'http://localhost:11434';
+        const model = this.config.model || 'llama3';
+        response = await fetch(`${endpoint.replace(/\/$/, '')}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: model,
+            prompt: prompt,
+            stream: false,
+            options: { temperature: 0.3, num_predict: 200 }
+          }),
+        });
+      } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
+        const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
+        response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify({
+            inputs: prompt,
+            parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false }
+          }),
+        });
       }
 
       if (response && response.ok) {
@@ -103,6 +129,11 @@ ${truncatedContent}
           text = data.choices?.[0]?.message?.content || '';
         } else if (this.config.provider === 'gemini') {
           text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else if (this.config.provider === 'ollama') {
+          text = data.response || '';
+        } else if (this.config.provider === 'huggingface') {
+          // Hugging Face returns an array: [{ generated_text: "..." }]
+          text = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
         }
 
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -317,7 +348,7 @@ ${truncatedContent}
     badExamples?: QuestionFeedback[]
   ): Promise<GeneratedExercise[]> {
     // Use real AI API if configured
-    if (this.config.provider !== 'local' && this.config.apiKey) {
+    if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'ollama')) {
       return await this.generateExercisesWithAI(content, analysis, request, goodExamples, badExamples);
     }
 
@@ -506,6 +537,28 @@ ${previousQuestionsSection}
         return geminiResult;
       }
       console.log('❌ Gemini API failed');
+    }
+
+    // Try Ollama (if configured as primary)
+    if (this.config.provider === 'ollama') {
+      console.log('🦙 Attempting Ollama API...');
+      const ollamaResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
+      if (ollamaResult) {
+        console.log('✅ Ollama API succeeded');
+        return ollamaResult;
+      }
+      console.log('❌ Ollama API failed');
+    }
+
+    // Try Hugging Face (if configured as primary)
+    if (this.config.provider === 'huggingface' && this.config.apiKey) {
+      console.log('🤗 Attempting Hugging Face API...');
+      const hfResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
+      if (hfResult) {
+        console.log('✅ Hugging Face API succeeded');
+        return hfResult;
+      }
+      console.log('❌ Hugging Face API failed');
     }
 
     // Try OpenAI as fallback (or primary if configured)
@@ -798,6 +851,117 @@ ${previousQuestionsSection}
       }
     }
     return null;
+  }
+
+  /**
+   * Call Hugging Face API
+   */
+  private async callHuggingFaceAPI(
+    prompt: string,
+    contentId: string,
+    analysis: any
+  ): Promise<GeneratedExercise[] | null> {
+    const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
+
+    try {
+      console.log(`[HuggingFace] Sending request to ${model}...`);
+
+      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 4000,
+            temperature: 0.7,
+            return_full_text: false,
+          },
+        }),
+      });
+
+      console.log('HuggingFace API response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('HuggingFace API error:', errorText);
+        return null;
+      }
+
+      const data = await response.json();
+
+      // Hugging Face output format is typically an array of objects
+      const responseText = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
+
+      console.log('HuggingFace response length:', responseText?.length || 0);
+
+      if (!responseText) {
+        console.error('Empty response from Hugging Face');
+        return null;
+      }
+
+      return this.parseExercisesFromResponse(responseText, contentId, analysis);
+
+    } catch (error) {
+      console.error('HuggingFace API error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Call Ollama API
+   */
+  private async callOllamaAPI(
+    prompt: string,
+    contentId: string,
+    analysis: any
+  ): Promise<GeneratedExercise[] | null> {
+    const modelName = this.config.model || 'llama3';
+    const endpoint = this.config.ollamaEndpoint || 'http://localhost:11434';
+
+    // Ensure endpoint doesn't end with slash
+    const baseUrl = endpoint.replace(/\/$/, '');
+
+    try {
+      console.log(`[Ollama] Sending request to ${baseUrl}/api/generate with model ${modelName}`);
+
+      const response = await fetch(`${baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelName,
+          prompt: prompt,
+          stream: false,
+          options: {
+            temperature: 0.7,
+            num_predict: 4096, // Large context for exercises
+            top_p: 0.9,
+          },
+          format: "json", // Request JSON format specifically
+        }),
+      });
+
+      console.log('Ollama API response status:', response.status);
+
+      if (!response.ok) {
+        console.error('Ollama API error status:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      const responseText = data.response || '';
+      console.log('Ollama response length:', responseText.length);
+
+      return this.parseExercisesFromResponse(responseText, contentId, analysis);
+
+    } catch (error) {
+      console.error('Ollama API error:', error);
+      return null;
+    }
   }
 
   /**
