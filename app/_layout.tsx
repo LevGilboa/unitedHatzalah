@@ -34,6 +34,11 @@ export default function RootLayout() {
     const ollamaEndpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_ENDPOINT ?? (process.env as any).EXPO_PUBLIC_OLLAMA_ENDPOINT ?? 'http://localhost:11434';
     const ollamaModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_MODEL ?? (process.env as any).EXPO_PUBLIC_OLLAMA_MODEL ?? 'llama3.2';
 
+    // Debug: Log what we got from environment
+    console.log('[AI Config Debug] Provider:', aiProvider || 'NOT SET');
+    console.log('[AI Config Debug] Gemini Key:', geminiApiKey ? `${geminiApiKey.substring(0, 10)}...` : 'NOT SET');
+    console.log('[AI Config Debug] Groq Key:', groqApiKey ? `${groqApiKey.substring(0, 10)}...` : 'NOT SET');
+
     // Make sure fallback keys are available in process.env for AIContentProcessor
     if (geminiApiKey) {
       (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY = geminiApiKey;
