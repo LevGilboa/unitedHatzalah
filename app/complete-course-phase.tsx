@@ -44,6 +44,8 @@ export default function CompleteCoursePhase() {
     const [showResults, setShowResults] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
     const [isRegenerating, setIsRegenerating] = useState(false);
+    const [autoAdvance, setAutoAdvance] = useState(true);
+    const [answeredCurrent, setAnsweredCurrent] = useState(false);
     const [progressAnim] = useState(new Animated.Value(0));
 
     useEffect(() => {
@@ -80,6 +82,7 @@ export default function CompleteCoursePhase() {
     const handleNext = useCallback(() => {
         if (!phase) return;
 
+        setAnsweredCurrent(false);
         if (currentExerciseIndex < phase.exercises.length - 1) {
             setCurrentExerciseIndex(prev => prev + 1);
         } else {
@@ -114,6 +117,7 @@ export default function CompleteCoursePhase() {
         setAnswers({});
         setShowResults(false);
         setShowConfetti(false);
+        setAnsweredCurrent(false);
     };
 
     const handleRegenerateQuestions = async () => {
@@ -267,7 +271,19 @@ export default function CompleteCoursePhase() {
                     </Text>
                 </View>
 
-                <View style={styles.headerRight} />
+                <TouchableOpacity
+                    style={[styles.autoAdvanceToggle, autoAdvance && styles.autoAdvanceToggleActive]}
+                    onPress={() => setAutoAdvance(!autoAdvance)}
+                >
+                    <Ionicons
+                        name={autoAdvance ? 'play-forward' : 'pause'}
+                        size={16}
+                        color={autoAdvance ? Colors.white : 'rgba(255,255,255,0.8)'}
+                    />
+                    <Text style={styles.autoAdvanceText}>
+                        {autoAdvance ? 'אוטו' : 'ידני'}
+                    </Text>
+                </TouchableOpacity>
             </View>
 
             {/* Progress Bar */}
@@ -294,17 +310,33 @@ export default function CompleteCoursePhase() {
                     subject={phase.type}
                     onAnswer={(exerciseId, answer, correct) => {
                         handleAnswer(exerciseId, correct);
-                        // Auto proceed to next after a short delay
-                        setTimeout(() => {
-                            if (currentExerciseIndex < phase.exercises.length - 1) {
-                                setCurrentExerciseIndex(prev => prev + 1);
-                            } else {
-                                calculateResults();
-                            }
-                        }, 1500);
+                        setAnsweredCurrent(true);
+                        if (autoAdvance) {
+                            // Auto proceed to next after a short delay
+                            setTimeout(() => {
+                                setAnsweredCurrent(false);
+                                if (currentExerciseIndex < phase.exercises.length - 1) {
+                                    setCurrentExerciseIndex(prev => prev + 1);
+                                } else {
+                                    calculateResults();
+                                }
+                            }, 1500);
+                        }
                     }}
                     onNext={handleNext}
                 />
+
+                {/* Manual Next Button (when auto-advance is off) */}
+                {!autoAdvance && answeredCurrent && (
+                    <TouchableOpacity
+                        style={styles.manualNextButton}
+                        onPress={handleNext}
+                    >
+                        <Text style={styles.manualNextText}>
+                            {currentExerciseIndex < phase.exercises.length - 1 ? 'לשאלה הבאה ➡️' : 'סיים שלב 🏁'}
+                        </Text>
+                    </TouchableOpacity>
+                )}
             </View>
         </View>
     );
@@ -344,8 +376,22 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
     },
-    headerRight: {
-        width: 44,
+    autoAdvanceToggle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.15)',
+        gap: 4,
+    },
+    autoAdvanceToggleActive: {
+        backgroundColor: 'rgba(255,255,255,0.3)',
+    },
+    autoAdvanceText: {
+        fontSize: 12,
+        color: Colors.white,
+        fontWeight: '600',
     },
     phaseTitle: {
         fontSize: 16,
@@ -364,6 +410,23 @@ const styles = StyleSheet.create({
     progressBar: {
         height: '100%',
         backgroundColor: Colors.success,
+    },
+    manualNextButton: {
+        backgroundColor: Colors.purple,
+        paddingVertical: 16,
+        borderRadius: 14,
+        alignItems: 'center',
+        marginTop: 12,
+        shadowColor: Colors.purple,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 6,
+        elevation: 4,
+    },
+    manualNextText: {
+        fontSize: 17,
+        fontWeight: 'bold',
+        color: Colors.white,
     },
     exerciseContainer: {
         flex: 1,
