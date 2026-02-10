@@ -33,7 +33,7 @@ export default {
         },
         web: {
             bundler: "metro",
-            output: "static",
+            output: "server",
             favicon: "./assets/images/wizzy-favicon.png"
         },
         plugins: [
@@ -71,7 +71,10 @@ export default {
                 projectId: "d10248c4-1c0b-4d84-9360-cbf0071b20be"
             },
             // Pass environment variables through expo config
-            EXPO_PUBLIC_GROQ_API_KEY: process.env.EXPO_PUBLIC_GROQ_API_KEY
+            EXPO_PUBLIC_GROQ_API_KEY: process.env.EXPO_PUBLIC_GROQ_API_KEY,
+            EXPO_PUBLIC_HUGGINGFACE_API_KEY: process.env.EXPO_PUBLIC_HUGGINGFACE_API_KEY,
+            EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
+            EXPO_PUBLIC_AI_PROVIDER: process.env.EXPO_PUBLIC_AI_PROVIDER
         }
     }
 };

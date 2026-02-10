@@ -6,6 +6,7 @@ import {
   DifficultyLevel,
   QuestionFeedback,
 } from '@/types/ai-learning';
+import { Platform } from 'react-native';
 
 /**
  * Service for integrating with AI APIs to generate exercises from uploaded content
@@ -53,9 +54,16 @@ ${truncatedContent}
 
     try {
       // Try with AI if available
+      // Disabled by user request to force local extraction
+      // Disabled by user request to force local extraction -> Removed false && to enable
       if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'ollama')) {
         const result = await this.callAIForTitleSubject(prompt);
-        if (result) return result;
+        if (result) {
+          return {
+            title: result.title,
+            subject: result.subject
+          };
+        }
       }
     } catch (error) {
       console.error('Error generating title/subject with AI:', error);
@@ -108,17 +116,31 @@ ${truncatedContent}
         });
       } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
         const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
-        response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
-          },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false }
-          }),
-        });
+
+        if (Platform.OS === 'web') {
+          response = await fetch('/api/huggingface', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: model,
+              inputs: prompt,
+              parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false },
+              apiKey: this.config.apiKey
+            }),
+          });
+        } else {
+          response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.config.apiKey}`,
+            },
+            body: JSON.stringify({
+              inputs: prompt,
+              parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false }
+            }),
+          });
+        }
       }
 
       if (response && response.ok) {
@@ -357,6 +379,46 @@ ${truncatedContent}
   }
 
   /**
+   * Split content into smaller chunks to fit context window
+   */
+  private splitContentIntoChunks(content: string, chunkSize: number = 6000): string[] {
+    const chunks: string[] = [];
+    let currentIndex = 0;
+
+    while (currentIndex < content.length) {
+      if (currentIndex + chunkSize >= content.length) {
+        chunks.push(content.slice(currentIndex));
+        break;
+      }
+
+      let endIndex = Math.min(currentIndex + chunkSize, content.length);
+
+      // Try to find a sentence break within the last 10% of the chunk
+      const lookback = Math.floor(chunkSize * 0.1);
+      const searchStart = Math.max(currentIndex, endIndex - lookback);
+      const segment = content.slice(searchStart, endIndex);
+
+      // Prioritize double newline (paragraph), then dot, then newline
+      const doubleNewline = segment.lastIndexOf('\n\n');
+      const dot = segment.lastIndexOf('.');
+      const newline = segment.lastIndexOf('\n');
+
+      if (doubleNewline !== -1) {
+        endIndex = searchStart + doubleNewline + 2;
+      } else if (dot !== -1) {
+        endIndex = searchStart + dot + 1;
+      } else if (newline !== -1) {
+        endIndex = searchStart + newline + 1;
+      }
+
+      chunks.push(content.slice(currentIndex, endIndex));
+      currentIndex = endIndex;
+    }
+
+    return chunks;
+  }
+
+  /**
    * Generate exercises using real AI API (Gemini, OpenAI, etc.) with fallback
    */
   private async generateExercisesWithAI(
@@ -425,10 +487,6 @@ ${repetitiveQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n')}`
 
     // Log content size for debugging
     console.log(`[AI] Content size: ${content.length} characters, Subject: ${request.subject}`);
-    console.log(`[AI] Generating ${request.numberOfExercises} exercises from content`);
-    if (repetitiveQuestions.length > 0) {
-      console.log(`[AI] Avoiding ${repetitiveQuestions.length} repetitive question patterns`);
-    }
 
     // Build previous questions section to prevent repetition
     let previousQuestionsSection = '';
@@ -455,31 +513,56 @@ ${forceNew ? `
 ` : 'חובה: צור שאלות חדשות לחלוטין שלא מופיעות ברשימה הזו ולא דומות להן.'}`;
     }
 
-    const prompt = `אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
+    // Chunking logic
+    const CHUNK_SIZE = 6000;
+    // Don't chunk for models with large context windows (Gemini, HuggingFace large models)
+    // Send everything at once for better question quality and coverage
+    const isLargeContextModel = this.config.provider === 'gemini' || this.config.provider === 'huggingface';
+    const shouldUseChunks = content.length > CHUNK_SIZE && !isLargeContextModel;
 
-חומר הלימוד (קרא את כל הטקסט מתחילתו ועד סופו!):
-${content}
+    let chunks = [content];
+    if (shouldUseChunks) {
+      chunks = this.splitContentIntoChunks(content, CHUNK_SIZE);
+      console.log(`[AI] Content split into ${chunks.length} chunks of ~${CHUNK_SIZE} chars`);
+    }
+
+    let allExercises: GeneratedExercise[] = [];
+
+    // Process chunks sequentially or in parallel?
+    // Sequential is safer for rate limits and errors.
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkContent = chunks[i];
+
+      // Calculate exercises for this chunk based on proportion
+      // or just divide equally
+      let exercisesForChunk = Math.ceil(request.numberOfExercises / chunks.length);
+      if (exercisesForChunk < 1) exercisesForChunk = 1;
+
+      // Add a bit more buffer to get variety
+      exercisesForChunk += 1;
+
+      console.log(`[AI] Processing chunk ${i + 1}/${chunks.length} (${chunkContent.length} chars) -> requesting ${exercisesForChunk} exercises`);
+
+      const prompt = `אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
+
+חומר הלימוד (חלק ${i + 1} מתתוך ${chunks.length}):
+${chunkContent}
 
 נושא: ${request.subject}
 רמת קושי מועדפת: ${request.targetDifficulty}
-מספר תרגילים: ${request.numberOfExercises}
+מספר תרגילים לחלק זה: ${exercisesForChunk}
 ${examplesSection}
 ${badExamplesSection}
 ${previousQuestionsSection}
 
-מזהה סשן: ${sessionId}-${randomSeed}
+מזהה סשן: ${sessionId}-${randomSeed}-${i}
 
 הנחיות קריטיות ליצירת התרגילים:
-1. **כיסוי מלא של כל החומר**: עליך לסרוק וללמוד את *כל* הטקסט שסופק, מתחילתו ועד סופו. חלק את החומר לחלקים (התחלה, אמצע, סוף) וצור שאלה אחת לפחות מכל חלק. אל תתמקד רק בהתחלה!
-2. **מניעת חזרות מוחלטת**: וודא שכל שאלה בודקת פרט מידע שונה לחלוטין. אל תשאל פעמיים על אותו נושא, אותו מושג, או אותו פרט.
-3. **גיוון מקסימלי**: השתמש בסוגי שאלות שונים (רב-ברירה, נכון/לא נכון, השלמת משפט) ובזוויות שונות (הגדרות, דוגמאות, סיבות, תוצאות, השוואות).
-4. **התייחסות לכל חלקי הטקסט**: אם יש פסקאות או נושאים שונים בטקסט - צור שאלות על כל אחד מהם.
+1. **התמקד בתוכן הנוכחי**: צור שאלות *רק* על סמך הטקסט שמופיע בחלק זה. אל תמציא מידע.
+2. **מניעת חזרות**: וודא שכל שאלה בודקת פרט מידע שונה.
+3. **גיוון**: השתמש בסוגי שאלות שונים.
 
-צור ${request.numberOfExercises} תרגילים איכותיים ומקוריים בעברית על סמך החומר המלא.
-כל תרגיל חייב להיות מבוסס ישירות על התוכן.
-חשוב: אל תחשוף את התשובה בתוך השאלה עצמה.
-השתמש בניסוחים שונים, זוויות שונות והיבטים שונים של החומר.
-הסברים חייבים להיות מפורטים, ברורים, ולהפנות ישירות לפסוקים או חלקים מהתוכן שמבססים את התשובה הנכונה.
+צור ${exercisesForChunk} תרגילים איכותיים ומקוריים בעברית.
 
 החזר JSON בפורמט הבא בלבד, ללא טקסט נוסף:
 
@@ -491,92 +574,82 @@ ${previousQuestionsSection}
       "question": "שאלה בעברית על התוכן",
       "options": ["תשובה 1", "תשובה 2", "תשובה 3", "תשובה 4"],
       "correctAnswer": 0,
-      "explanation": "הסבר מפורט וברור בעברית עם הפניה ישירה לפסוק או חלק מהתוכן שמבסס את התשובה",
+      "explanation": "הסבר מפורט...",
       "difficulty": "medium",
       "topic": "נושא מהתוכן",
-      "keywords": ["מילת מפתח 1", "מילת מפתח 2"]
-    },
-    {
-      "type": "true-false",
-      "question": "נכון או לא נכון: משפט לבדיקה",
-      "options": ["נכון", "לא נכון"],
-      "correctAnswer": 0,
-      "explanation": "הסבר למה המשפט נכון או לא נכון",
-      "difficulty": "easy",
-      "topic": "נושא מהתוכן",
-      "keywords": ["מילת מפתח"]
+      "keywords": ["מילת מפתח 1"]
     }
   ]
 }
 \`\`\`
 
-חשוב מאוד עבור שאלות true-false:
-- correctAnswer חייב להיות 0 (עבור "נכון") או 1 (עבור "לא נכון")
-- options חייב להיות ["נכון", "לא נכון"]
+חשוב מאוד:
+- correctAnswer חייב להיות 0 או 1 עבור true-false
+- options חייב להיות ["נכון", "לא נכון"] עבור true-false
+`;
 
-סוגי תרגילים אפשריים: multiple-choice, true-false, fill-blank
-רמות קושי: easy, medium, hard`;
+      // Call the configured provider
+      let chunkResult: GeneratedExercise[] | null = null;
 
-    // Try Groq first (if configured as primary) - it's free and fast!
-    if (this.config.provider === 'groq' && this.config.apiKey) {
-      console.log('🟢 Attempting Groq API...');
-      const groqResult = await this.callGroqAPI(prompt, request.contentId, analysis);
-      if (groqResult) {
-        console.log('✅ Groq API succeeded');
-        return groqResult;
+      // Try configured provider first
+      if (this.config.provider === 'groq' && this.config.apiKey) {
+        chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
+        chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'ollama') {
+        chunkResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
+        chunkResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
       }
-      console.log('❌ Groq API failed');
+
+      // Fallback #1: Try Gemini if primary provider failed and Gemini key is available
+      if (!chunkResult && this.config.provider !== 'gemini') {
+        let geminiKey = (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY;
+        // Also try Constants.expoConfig.extra (how Expo provides env vars at runtime)
+        if (!geminiKey) {
+          try {
+            const Constants = require('expo-constants').default;
+            geminiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
+          } catch (e) { /* Constants not available */ }
+        }
+        if (geminiKey) {
+          console.log('🟡 Fallback to Gemini API...');
+          const savedApiKey = this.config.apiKey;
+          const savedModel = this.config.model;
+          this.config.apiKey = geminiKey;
+          this.config.model = 'gemini-2.0-flash';
+          chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
+          this.config.apiKey = savedApiKey;
+          this.config.model = savedModel;
+        }
+      }
+
+      // Fallback #2: Try OpenAI if configured
+      if (!chunkResult && (this.config.provider === 'openai' || this.config.fallbackOpenAIKey)) {
+        const openaiKey = this.config.provider === 'openai' ? this.config.apiKey : this.config.fallbackOpenAIKey;
+        const openaiModel = this.config.provider === 'openai' ? this.config.model : this.config.fallbackOpenAIModel;
+        if (openaiKey) {
+          console.log('🟡 Fallback to OpenAI API...');
+          chunkResult = await this.callOpenAIAPI(prompt, request.contentId, analysis, openaiKey, openaiModel);
+        }
+      }
+
+      if (chunkResult) {
+        allExercises = [...allExercises, ...chunkResult];
+      } else {
+        console.error(`[AI] Failed to generate exercises for chunk ${i + 1}`);
+      }
     }
 
-    // Try Gemini (if configured as primary)
-    if (this.config.provider === 'gemini' && this.config.apiKey) {
-      console.log('🔵 Attempting Gemini API...');
-      const geminiResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
-      if (geminiResult) {
-        console.log('✅ Gemini API succeeded');
-        return geminiResult;
-      }
-      console.log('❌ Gemini API failed');
+    if (allExercises.length > 0) {
+      // Shuffle result and limit to requested number
+      return allExercises
+        .sort(() => Math.random() - 0.5)
+        .slice(0, request.numberOfExercises);
     }
 
-    // Try Ollama (if configured as primary)
-    if (this.config.provider === 'ollama') {
-      console.log('🦙 Attempting Ollama API...');
-      const ollamaResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
-      if (ollamaResult) {
-        console.log('✅ Ollama API succeeded');
-        return ollamaResult;
-      }
-      console.log('❌ Ollama API failed');
-    }
-
-    // Try Hugging Face (if configured as primary)
-    if (this.config.provider === 'huggingface' && this.config.apiKey) {
-      console.log('🤗 Attempting Hugging Face API...');
-      const hfResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
-      if (hfResult) {
-        console.log('✅ Hugging Face API succeeded');
-        return hfResult;
-      }
-      console.log('❌ Hugging Face API failed');
-    }
-
-    // Try OpenAI as fallback (or primary if configured)
-    const openaiKey = this.config.provider === 'openai' ? this.config.apiKey : this.config.fallbackOpenAIKey;
-    const openaiModel = this.config.provider === 'openai' ? this.config.model : this.config.fallbackOpenAIModel;
-
-    if (openaiKey) {
-      console.log('🟡 Attempting OpenAI API...');
-      const openaiResult = await this.callOpenAIAPI(prompt, request.contentId, analysis, openaiKey, openaiModel);
-      if (openaiResult) {
-        console.log('✅ OpenAI API succeeded');
-        return openaiResult;
-      }
-      console.log('❌ OpenAI API failed');
-    }
-
-    // Fallback to local generation
-    console.log('🟠 Falling back to local generation...');
+    // Fallback to local generation if nothing worked
+    console.log('🟠 Falling back to local generation (all chunks failed or empty)...');
     return this.generateLocalExercises(content, analysis, request);
   }
 
@@ -864,23 +937,49 @@ ${previousQuestionsSection}
     const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
 
     try {
-      console.log(`[HuggingFace] Sending request to ${model}...`);
+      console.log(`[HuggingFace] Sending request to ${model}... (Platform: ${Platform.OS})`);
 
-      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 4000,
-            temperature: 0.7,
-            return_full_text: false,
+      let response;
+
+      // On Web, simple fetch to external API fails due to CORS. 
+      // We use the local Expo API route (app/api/huggingface+api.ts) which acts as a proxy.
+      // NOTE: This works locally and on Vercel, but NOT on GitHub Pages (static).
+      // For GitHub Pages, you would need an external backend URL.
+      if (Platform.OS === 'web') {
+        // Use relative path - works automatically with Expo Router API routes
+        console.log('[HuggingFace] Using app/api/huggingface proxy');
+        response = await fetch('/api/huggingface', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: model,
+            inputs: prompt,
+            parameters: {
+              max_new_tokens: 4000,
+              temperature: 0.7,
+              return_full_text: false,
+            },
+            apiKey: this.config.apiKey // Sending key to proxy securely
+          }),
+        });
+      } else {
+        // Native (iOS/Android) can call directly
+        response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiKey}`,
           },
-        }),
-      });
+          body: JSON.stringify({
+            inputs: prompt,
+            parameters: {
+              max_new_tokens: 4000,
+              temperature: 0.7,
+              return_full_text: false,
+            },
+          }),
+        });
+      }
 
       console.log('HuggingFace API response status:', response.status);
 
@@ -896,6 +995,7 @@ ${previousQuestionsSection}
       const responseText = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
 
       console.log('HuggingFace response length:', responseText?.length || 0);
+      console.log('HuggingFace response text:', responseText.substring(0, 500)); // Log first 500 chars
 
       if (!responseText) {
         console.error('Empty response from Hugging Face');

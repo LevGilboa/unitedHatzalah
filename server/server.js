@@ -5,6 +5,17 @@ const { log } = require('console');
 
 const app = express();
 
+// Middleware to handle CORS manually
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*'); // Allow any origin for dev
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Middleware to parse JSON request bodies
 app.use(express.json());
 
@@ -47,6 +58,51 @@ app.post('/calls', async (req, res) => {
     res.status(201).send(`User added with ID: ${docRef.id}`);
   } catch (error) {
     res.status(500).send('Error adding user: ' + error.message);
+  }
+});
+
+// Proxy for Hugging Face API (to avoid CORS on web)
+// Proxy for Hugging Face API (to avoid CORS on web)
+app.post('/api/huggingface', async (req, res) => {
+  try {
+    const { model, inputs, parameters, apiKey: bodyApiKey } = req.body;
+
+    // Get API key from env (preferred) or body
+    const apiKey = process.env.EXPO_PUBLIC_HUGGINGFACE_API_KEY || bodyApiKey || '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';
+
+    console.log(`[Proxy] Processing request for model: ${model}`);
+    console.log(`[Proxy] Auth: ${apiKey ? 'Key Present' : 'MISSING'}`);
+
+    // Updated to new router domain as api-inference is deprecated
+    const targetUrl = `https://router.huggingface.co/models/${model}`;
+    console.log(`[Proxy] Forwarding to: ${targetUrl}`);
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        inputs,
+        parameters
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Proxy] Upstream error: ${response.status}`, errorText);
+      return res.status(502).json({
+        error: `Upstream Hugging Face error: ${response.status}`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('[Proxy] Internal error:', error);
+    res.status(500).send('Proxy error: ' + error.message);
   }
 });
 

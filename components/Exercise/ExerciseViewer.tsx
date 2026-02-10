@@ -330,19 +330,19 @@ export default function ExerciseViewer({
         <TouchableOpacity
           style={[
             styles.trueFalseOption,
-            selectedAnswer === 'true' && styles.trueFalseOptionSelected,
+            selectedAnswer === 0 && styles.trueFalseOptionSelected,
             showFeedback &&
-            exercise.correctAnswer === 'true' &&
+            exercise.correctAnswer === 0 &&
             styles.optionCorrect,
             showFeedback &&
-            selectedAnswer === 'true' &&
+            selectedAnswer === 0 &&
             !isCorrect &&
             styles.optionIncorrect,
           ]}
           onPress={() => {
             if (!showFeedback) {
               gameEffects.onSelect();
-              setSelectedAnswer('true');
+              setSelectedAnswer(0);
             }
           }}
           disabled={showFeedback}
@@ -352,24 +352,24 @@ export default function ExerciseViewer({
         <TouchableOpacity
           style={[
             styles.trueFalseOption,
-            selectedAnswer === 'false' && styles.trueFalseOptionSelected,
+            selectedAnswer === 1 && styles.trueFalseOptionSelected,
             showFeedback &&
-            exercise.correctAnswer === 'false' &&
+            exercise.correctAnswer === 1 &&
             styles.optionCorrect,
             showFeedback &&
-            selectedAnswer === 'false' &&
+            selectedAnswer === 1 &&
             !isCorrect &&
             styles.optionIncorrect,
           ]}
           onPress={() => {
             if (!showFeedback) {
               gameEffects.onSelect();
-              setSelectedAnswer('false');
+              setSelectedAnswer(1);
             }
           }}
           disabled={showFeedback}
         >
-          <Text style={styles.trueFalseText}>שקר</Text>
+          <Text style={styles.trueFalseText}>לא נכון</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -540,10 +540,35 @@ export default function ExerciseViewer({
   const renderShortAnswer = () => (
     <View style={styles.exerciseContent}>
       <Text style={styles.question}>{exercise.question}</Text>
-      {/* TODO: Implement text input for short answer */}
-      <View style={styles.shortAnswerInput}>
-        <Text style={styles.placeholderText}>הקלד תשובה</Text>
-      </View>
+      <TextInput
+        style={[
+          styles.textInputAnswer,
+          showFeedback && isCorrect && styles.textInputCorrect,
+          showFeedback && !isCorrect && styles.textInputIncorrect,
+        ]}
+        placeholder="הקלד את התשובה כאן..."
+        placeholderTextColor="#999"
+        value={textAnswer}
+        onChangeText={setTextAnswer}
+        editable={!showFeedback && !isCheckingAnswer}
+        textAlign="right"
+        multiline
+        numberOfLines={3}
+      />
+      {isCheckingAnswer && (
+        <View style={styles.checkingAnswerContainer}>
+          <ActivityIndicator size="small" color={Colors.accent} />
+          <Text style={styles.checkingAnswerText}>בודק את התשובה...</Text>
+        </View>
+      )}
+      {showFeedback && isCorrect && aiFeedback && (
+        <Text style={styles.aiFeedbackText}>{aiFeedback}</Text>
+      )}
+      {showFeedback && !isCorrect && (
+        <Text style={styles.correctAnswerText}>
+          התשובה הנכונה: {exercise.correctAnswer}
+        </Text>
+      )}
     </View>
   );
 
