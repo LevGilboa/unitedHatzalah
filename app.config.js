@@ -33,7 +33,7 @@ export default {
         },
         web: {
             bundler: "metro",
-            output: "server",
+            output: "static",
             favicon: "./assets/images/wizzy-favicon.png"
         },
         plugins: [
