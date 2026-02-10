@@ -22,6 +22,8 @@ import { CoursePhase, GeneratedExercise } from '@/types/ai-learning';
 import ExerciseViewer from '@/components/Exercise/ExerciseViewer';
 import ConfettiCelebration from '@/components/ConfettiCelebration';
 import { gameEffects } from '@/services/GameEffects';
+import CookieDisplay from '@/components/ui/CookieDisplay';
+import { useCookieStore, COOKIE_REWARDS } from '@/stores/cookieStore';
 
 export default function CompleteCoursePhase() {
     const router = useRouter();
@@ -37,6 +39,8 @@ export default function CompleteCoursePhase() {
         currentPhase,
         setCurrentPhase,
     } = useCompleteCourseStore();
+
+    const { addCookies, spendCookies } = useCookieStore();
 
     const [phase, setPhase] = useState<CoursePhase | null>(null);
     const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
@@ -77,6 +81,13 @@ export default function CompleteCoursePhase() {
             ...prev,
             [exerciseId]: isCorrect,
         }));
+
+        // Award cookies for answering
+        if (isCorrect) {
+            addCookies(COOKIE_REWARDS.CORRECT_ANSWER, 'תשובה נכונה! ✓');
+        } else {
+            addCookies(COOKIE_REWARDS.WRONG_ANSWER, 'ניסיון טוב');
+        }
     }, []);
 
     const handleNext = useCallback(() => {
@@ -101,6 +112,15 @@ export default function CompleteCoursePhase() {
         // Update phase score in store
         updatePhaseScore(courseId, phase.order, score);
 
+        // Award cookies for completing phase
+        if (score >= phase.requiredScore) {
+            if (score === 100) {
+                addCookies(COOKIE_REWARDS.COMPLETE_PHASE_PERFECT, 'שלב מושלם! 🌟');
+            } else {
+                addCookies(COOKIE_REWARDS.COMPLETE_PHASE_PASS, 'השלב הושלם! 🎉');
+            }
+        }
+
         // Show confetti if passed
         if (score >= phase.requiredScore) {
             setShowConfetti(true);
@@ -122,6 +142,19 @@ export default function CompleteCoursePhase() {
 
     const handleRegenerateQuestions = async () => {
         if (!courseId || !phase) return;
+
+        // Check if user has enough cookies
+        const cost = Math.abs(COOKIE_REWARDS.REGENERATE_QUESTIONS);
+        const canAfford = spendCookies(cost, 'יצירת שאלות חדשות');
+
+        if (!canAfford) {
+            Alert.alert(
+                'אין מספיק עוגיות',
+                `צריך ${cost} עוגיות כדי ליצור שאלות חדשות. המשך לתרגל כדי לאסוף עוד!`,
+                [{ text: 'הבנתי' }]
+            );
+            return;
+        }
 
         setIsRegenerating(true);
         const success = await regeneratePhase(courseId, phase.order);
@@ -246,7 +279,9 @@ export default function CompleteCoursePhase() {
                             ) : (
                                 <>
                                     <Ionicons name="shuffle" size={18} color={Colors.purple} />
-                                    <Text style={styles.regenerateText}>צור שאלות חדשות</Text>
+                                    <Text style={styles.regenerateText}>
+                                        צור שאלות חדשות ({Math.abs(COOKIE_REWARDS.REGENERATE_QUESTIONS)} 🍪)
+                                    </Text>
                                 </>
                             )}
                         </TouchableOpacity>
@@ -271,19 +306,22 @@ export default function CompleteCoursePhase() {
                     </Text>
                 </View>
 
-                <TouchableOpacity
-                    style={[styles.autoAdvanceToggle, autoAdvance && styles.autoAdvanceToggleActive]}
-                    onPress={() => setAutoAdvance(!autoAdvance)}
-                >
-                    <Ionicons
-                        name={autoAdvance ? 'play-forward' : 'pause'}
-                        size={16}
-                        color={autoAdvance ? Colors.white : 'rgba(255,255,255,0.8)'}
-                    />
-                    <Text style={styles.autoAdvanceText}>
-                        {autoAdvance ? 'אוטו' : 'ידני'}
-                    </Text>
-                </TouchableOpacity>
+                <View style={styles.headerRight}>
+                    <CookieDisplay size="small" showLabel={false} />
+                    <TouchableOpacity
+                        style={[styles.autoAdvanceToggle, autoAdvance && styles.autoAdvanceToggleActive]}
+                        onPress={() => setAutoAdvance(!autoAdvance)}
+                    >
+                        <Ionicons
+                            name={autoAdvance ? 'play-forward' : 'pause'}
+                            size={16}
+                            color={autoAdvance ? Colors.white : 'rgba(255,255,255,0.8)'}
+                        />
+                        <Text style={styles.autoAdvanceText}>
+                            {autoAdvance ? 'אוטו' : 'ידני'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Progress Bar */}
@@ -375,6 +413,11 @@ const styles = StyleSheet.create({
     headerCenter: {
         flex: 1,
         alignItems: 'center',
+    },
+    headerRight: {
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 8,
     },
     autoAdvanceToggle: {
         flexDirection: 'row',

@@ -13,15 +13,19 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useRouter } from 'expo-router';
 import { isCustomCourse } from '@/types/data';
+import CookieDisplay from '@/components/ui/CookieDisplay';
+import { useCookieStore } from '@/stores/cookieStore';
 
 export default function Learning() {
   const router = useRouter();
   const { courses, localCourses, loading, error, fetchAllCourses } = useCourseStore();
   const { completeCourses, getCourseProgress, deleteCompleteCourse } = useCompleteCourseStore();
+  const { checkDailyStreak } = useCookieStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     fetchAllCourses();
+    checkDailyStreak(); // Check and reward daily login
   }, [fetchAllCourses]);
 
   const handleCourseCreated = (courseId: string) => {
@@ -43,6 +47,11 @@ export default function Learning() {
   return (
     <>
       <ScrollToTopContainer>
+        {/* Cookie Display */}
+        <View style={styles.cookieHeader}>
+          <CookieDisplay size="medium" />
+        </View>
+
         {/* Create Course Button */}
         <TouchableOpacity
           style={styles.createButton}
@@ -175,6 +184,12 @@ export default function Learning() {
 }
 
 const styles = StyleSheet.create({
+  cookieHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    alignItems: 'flex-end',
+  },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
