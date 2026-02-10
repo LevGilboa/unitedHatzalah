@@ -591,15 +591,19 @@ ${previousQuestionsSection}
       // Call the configured provider
       let chunkResult: GeneratedExercise[] | null = null;
 
-      // Try configured provider first
-      if (this.config.provider === 'groq' && this.config.apiKey) {
-        chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
-        chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'ollama') {
-        chunkResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
+      // Try Hugging Face first (primary provider)
+      if (this.config.provider === 'huggingface' && this.config.apiKey) {
+        console.log('🟢 Trying Hugging Face API (primary)...');
         chunkResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
+        console.log('🟢 Trying Gemini API (primary)...');
+        chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'groq' && this.config.apiKey) {
+        console.log('🟢 Trying Groq API (primary)...');
+        chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'ollama') {
+        console.log('🟢 Trying Ollama API (primary)...');
+        chunkResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
       }
 
       // Fallback #1: Try Gemini if primary provider failed and Gemini key is available
@@ -613,7 +617,7 @@ ${previousQuestionsSection}
           } catch (e) { /* Constants not available */ }
         }
         if (geminiKey) {
-          console.log('🟡 Fallback to Gemini API...');
+          console.log('🟡 Fallback #1: Trying Gemini API...');
           const savedApiKey = this.config.apiKey;
           const savedModel = this.config.model;
           this.config.apiKey = geminiKey;
@@ -624,12 +628,36 @@ ${previousQuestionsSection}
         }
       }
 
-      // Fallback #2: Try OpenAI if configured
+      // Fallback #2: Try Groq if Gemini also failed
+      if (!chunkResult && this.config.provider !== 'groq') {
+        let groqKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY;
+        if (!groqKey) {
+          try {
+            const Constants = require('expo-constants').default;
+            groqKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY;
+          } catch (e) { /* Constants not available */ }
+        }
+        if (groqKey) {
+          console.log('🟡 Fallback #2: Trying Groq API...');
+          const savedApiKey = this.config.apiKey;
+          const savedProvider = this.config.provider;
+          const savedModel = this.config.model;
+          this.config.apiKey = groqKey;
+          this.config.provider = 'groq';
+          this.config.model = (process.env as any).EXPO_PUBLIC_GROQ_MODEL || 'llama-3.1-70b-versatile';
+          chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
+          this.config.apiKey = savedApiKey;
+          this.config.provider = savedProvider;
+          this.config.model = savedModel;
+        }
+      }
+
+      // Fallback #3: Try OpenAI if configured (last resort)
       if (!chunkResult && (this.config.provider === 'openai' || this.config.fallbackOpenAIKey)) {
         const openaiKey = this.config.provider === 'openai' ? this.config.apiKey : this.config.fallbackOpenAIKey;
         const openaiModel = this.config.provider === 'openai' ? this.config.model : this.config.fallbackOpenAIModel;
         if (openaiKey) {
-          console.log('🟡 Fallback to OpenAI API...');
+          console.log('🟡 Fallback #3: Trying OpenAI API...');
           chunkResult = await this.callOpenAIAPI(prompt, request.contentId, analysis, openaiKey, openaiModel);
         }
       }
