@@ -72,8 +72,12 @@ export default {
             },
             // Pass environment variables through expo config
             EXPO_PUBLIC_GROQ_API_KEY: process.env.EXPO_PUBLIC_GROQ_API_KEY,
+            EXPO_PUBLIC_GROQ_MODEL: process.env.EXPO_PUBLIC_GROQ_MODEL,
+            EXPO_PUBLIC_GEMINI_API_KEY: process.env.EXPO_PUBLIC_GEMINI_API_KEY,
             EXPO_PUBLIC_HUGGINGFACE_API_KEY: process.env.EXPO_PUBLIC_HUGGINGFACE_API_KEY,
             EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
+            EXPO_PUBLIC_OLLAMA_ENDPOINT: process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT,
+            EXPO_PUBLIC_OLLAMA_MODEL: process.env.EXPO_PUBLIC_OLLAMA_MODEL,
             EXPO_PUBLIC_AI_PROVIDER: process.env.EXPO_PUBLIC_AI_PROVIDER
         }
     }

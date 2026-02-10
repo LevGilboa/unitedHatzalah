@@ -104,16 +104,43 @@ ${truncatedContent}
       } else if (this.config.provider === 'ollama') {
         const endpoint = this.config.ollamaEndpoint || 'http://localhost:11434';
         const model = this.config.model || 'llama3';
-        response = await fetch(`${endpoint.replace(/\/$/, '')}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: model,
-            prompt: prompt,
-            stream: false,
-            options: { temperature: 0.3, num_predict: 200 }
-          }),
-        });
+        const baseUrl = endpoint.replace(/\/$/, '');
+        const isOpenAICompatible = baseUrl.includes('ngrok') || baseUrl.includes('https://');
+
+        if (isOpenAICompatible) {
+          // OpenAI-compatible format
+          response = await fetch(`${baseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': '69420'
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [
+                { role: 'system', content: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.' },
+                { role: 'user', content: prompt }
+              ],
+              temperature: 0.3,
+              max_tokens: 200
+            }),
+          });
+        } else {
+          // Native Ollama format
+          response = await fetch(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': '69420'
+            },
+            body: JSON.stringify({
+              model: model,
+              prompt: prompt,
+              stream: false,
+              options: { temperature: 0.3, num_predict: 200 }
+            }),
+          });
+        }
       } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
         const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
 
@@ -152,7 +179,8 @@ ${truncatedContent}
         } else if (this.config.provider === 'gemini') {
           text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         } else if (this.config.provider === 'ollama') {
-          text = data.response || '';
+          // Support both native Ollama format and OpenAI-compatible format
+          text = data.choices?.[0]?.message?.content || data.response || '';
         } else if (this.config.provider === 'huggingface') {
           // Hugging Face returns an array: [{ generated_text: "..." }]
           text = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
@@ -1015,6 +1043,7 @@ ${previousQuestionsSection}
 
   /**
    * Call Ollama API
+   * Supports both native Ollama API and OpenAI-compatible API (for ngrok endpoints)
    */
   private async callOllamaAPI(
     prompt: string,
@@ -1027,39 +1056,87 @@ ${previousQuestionsSection}
     // Ensure endpoint doesn't end with slash
     const baseUrl = endpoint.replace(/\/$/, '');
 
+    // Detect if using OpenAI-compatible endpoint (ngrok, remote servers)
+    const isOpenAICompatible = baseUrl.includes('ngrok') || baseUrl.includes('https://');
+
     try {
-      console.log(`[Ollama] Sending request to ${baseUrl}/api/generate with model ${modelName}`);
+      if (isOpenAICompatible) {
+        // Use OpenAI-compatible API format (for ngrok endpoints)
+        console.log(`[Ollama] Sending OpenAI-compatible request to ${baseUrl}/v1/chat/completions with model ${modelName}`);
 
-      const response = await fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: modelName,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.7,
-            num_predict: 4096, // Large context for exercises
-            top_p: 0.9,
+        const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': '69420',
           },
-          format: "json", // Request JSON format specifically
-        }),
-      });
+          body: JSON.stringify({
+            model: modelName,
+            messages: [
+              {
+                role: 'system',
+                content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 4096,
+          }),
+        });
 
-      console.log('Ollama API response status:', response.status);
+        console.log('Ollama API response status:', response.status);
 
-      if (!response.ok) {
-        console.error('Ollama API error status:', response.status);
-        return null;
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Ollama API error:', errorText);
+          return null;
+        }
+
+        const data = await response.json();
+        const responseText = data.choices?.[0]?.message?.content || '';
+        console.log('Ollama response length:', responseText.length);
+
+        return this.parseExercisesFromResponse(responseText, contentId, analysis);
+
+      } else {
+        // Use native Ollama API format (for local installations)
+        console.log(`[Ollama] Sending native request to ${baseUrl}/api/generate with model ${modelName}`);
+
+        const response = await fetch(`${baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': '69420',
+          },
+          body: JSON.stringify({
+            model: modelName,
+            prompt: prompt,
+            stream: false,
+            options: {
+              temperature: 0.7,
+              num_predict: 4096, // Large context for exercises
+              top_p: 0.9,
+            },
+            format: "json", // Request JSON format specifically
+          }),
+        });
+
+        console.log('Ollama API response status:', response.status);
+
+        if (!response.ok) {
+          console.error('Ollama API error status:', response.status);
+          return null;
+        }
+
+        const data = await response.json();
+        const responseText = data.response || '';
+        console.log('Ollama response length:', responseText.length);
+
+        return this.parseExercisesFromResponse(responseText, contentId, analysis);
       }
-
-      const data = await response.json();
-      const responseText = data.response || '';
-      console.log('Ollama response length:', responseText.length);
-
-      return this.parseExercisesFromResponse(responseText, contentId, analysis);
 
     } catch (error) {
       console.error('Ollama API error:', error);
