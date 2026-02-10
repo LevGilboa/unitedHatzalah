@@ -967,47 +967,22 @@ ${previousQuestionsSection}
     try {
       console.log(`[HuggingFace] Sending request to ${model}... (Platform: ${Platform.OS})`);
 
-      let response;
-
-      // On Web, simple fetch to external API fails due to CORS. 
-      // We use the local Expo API route (app/api/huggingface+api.ts) which acts as a proxy.
-      // NOTE: This works locally and on Vercel, but NOT on GitHub Pages (static).
-      // For GitHub Pages, you would need an external backend URL.
-      if (Platform.OS === 'web') {
-        // Use relative path - works automatically with Expo Router API routes
-        console.log('[HuggingFace] Using app/api/huggingface proxy');
-        response = await fetch('/api/huggingface', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: model,
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 4000,
-              temperature: 0.7,
-              return_full_text: false,
-            },
-            apiKey: this.config.apiKey // Sending key to proxy securely
-          }),
-        });
-      } else {
-        // Native (iOS/Android) can call directly
-        response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
+      // Call Hugging Face API directly (works on all platforms including GitHub Pages)
+      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 4000,
+            temperature: 0.7,
+            return_full_text: false,
           },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 4000,
-              temperature: 0.7,
-              return_full_text: false,
-            },
-          }),
-        });
-      }
+        }),
+      });
 
       console.log('HuggingFace API response status:', response.status);
 
