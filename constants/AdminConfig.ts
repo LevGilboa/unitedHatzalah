@@ -7,6 +7,7 @@
 export const ADMIN_EMAILS: string[] = [
   'levimhshael@yatmal.co.il',
   'levimshael@yatmal.co.il',
+  'dvirgilboa@yatmal.co.il',
   // Add more admin emails here
 ];
 
