@@ -30,8 +30,18 @@ export default function RootLayout() {
     const aiProvider = Constants.expoConfig?.extra?.EXPO_PUBLIC_AI_PROVIDER ?? (process.env as any).EXPO_PUBLIC_AI_PROVIDER ?? '';
     const geminiApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ?? (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY ?? '';
     const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
+    const groqModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_MODEL ?? (process.env as any).EXPO_PUBLIC_GROQ_MODEL ?? 'llama-3.1-70b-versatile';
     const ollamaEndpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_ENDPOINT ?? (process.env as any).EXPO_PUBLIC_OLLAMA_ENDPOINT ?? 'http://localhost:11434';
     const ollamaModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_MODEL ?? (process.env as any).EXPO_PUBLIC_OLLAMA_MODEL ?? 'llama3.2';
+
+    // Make sure fallback keys are available in process.env for AIContentProcessor
+    if (geminiApiKey) {
+      (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY = geminiApiKey;
+    }
+    if (groqApiKey) {
+      (process.env as any).EXPO_PUBLIC_GROQ_API_KEY = groqApiKey;
+      (process.env as any).EXPO_PUBLIC_GROQ_MODEL = groqModel;
+    }
 
     // Initialize AI processor based on provider
     if (aiProvider === 'ollama') {
@@ -49,7 +59,7 @@ export default function RootLayout() {
       const hfApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? '';
       const hfModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_MODEL ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_MODEL ?? 'meta-llama/Meta-Llama-3-8B-Instruct';
 
-      console.log('[AI] initializeAIProcessor -> provider: huggingface');
+      console.log('[AI] initializeAIProcessor -> provider: huggingface (with Gemini & Groq fallback)');
       initializeAIProcessor({
         provider: 'huggingface',
         apiKey: hfApiKey,
@@ -57,7 +67,7 @@ export default function RootLayout() {
       });
     } else if (aiProvider === 'gemini' && geminiApiKey) {
       // Use Gemini API for AI-powered exercise generation
-      console.log('[AI] initializeAIProcessor -> provider: gemini');
+      console.log('[AI] initializeAIProcessor -> provider: gemini (with Groq fallback)');
       initializeAIProcessor({
         provider: 'gemini',
         apiKey: geminiApiKey,
@@ -65,7 +75,7 @@ export default function RootLayout() {
       });
     } else if (geminiApiKey) {
       // Default to Gemini if key is provided (even without explicit provider)
-      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected)');
+      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected, with Groq fallback)');
       initializeAIProcessor({
         provider: 'gemini',
         apiKey: geminiApiKey,
@@ -77,7 +87,7 @@ export default function RootLayout() {
       initializeAIProcessor({
         provider: 'groq',
         apiKey: groqApiKey,
-        model: 'llama-3.3-70b-versatile',
+        model: groqModel,
       });
     } else {
       // Fallback to local generation if no API key
