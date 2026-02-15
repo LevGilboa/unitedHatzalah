@@ -180,7 +180,9 @@ export default function UploadContent() {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [showPasteModal, setShowPasteModal] = useState(false);
+  const [showUrlModal, setShowUrlModal] = useState(false);
   const [pastedText, setPastedText] = useState('');
+  const [urlInput, setUrlInput] = useState('');
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
   // Debug: Check if user is authenticated
@@ -356,6 +358,43 @@ export default function UploadContent() {
       Alert.alert('הצלחה', 'הטקסט נטען בהצלחה');
     } else {
       Alert.alert('שגיאה', 'אנא הזן טקסט');
+    }
+  };
+
+  const handleUrlSubmit = async () => {
+    if (!urlInput.trim()) {
+      Alert.alert('שגיאה', 'אנא הזן קישור תקין');
+      return;
+    }
+
+    try {
+      setUploadProgress('טוען תוכן מהקישור...');
+      setShowUrlModal(false);
+      setLoading(true);
+
+      const processor = getAIProcessor();
+      const content = await processor.fetchContentFromUrl(urlInput);
+
+      if (!content || content.length < 50) {
+        throw new Error('לא נמצא תוכן מספיק בקישור זה');
+      }
+
+      setState((prev) => ({
+        ...prev,
+        fileContent: content,
+        fileName: `url-${new URL(urlInput).hostname}`,
+        fileType: 'text',
+        description: `מקור: ${urlInput}`
+      }));
+
+      setUrlInput('');
+      Alert.alert('הצלחה', 'התוכן נטען בהצלחה מהקישור');
+    } catch (error) {
+      console.error('URL fetch error:', error);
+      Alert.alert('שגיאה', `לא הצלחנו לטעון את הקישור.\n${error instanceof Error ? error.message : ''}`);
+    } finally {
+      setLoading(false);
+      setUploadProgress('');
     }
   };
 
@@ -691,6 +730,15 @@ export default function UploadContent() {
               <Text style={styles.divider}>או</Text>
             </View>
             <CustomButton
+              title="🌐 ייבא מקישור (URL)"
+              handlePress={() => setShowUrlModal(true)}
+              disabled={loading}
+              backgroundColor={Colors.primary}
+            />
+            <View style={styles.dividerContainer}>
+              <Text style={styles.divider}>או</Text>
+            </View>
+            <CustomButton
               title="📁 אל הקבצים שלי"
               handlePress={() => router.push('/(tabs)/my-content')}
               disabled={loading}
@@ -760,6 +808,43 @@ export default function UploadContent() {
                 onPress={handlePasteConfirm}
               >
                 <Text style={[styles.modalButtonText, { color: 'white' }]}>אישור</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* URL Input Modal */}
+      <Modal
+        visible={showUrlModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowUrlModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>ייבא מקישור</Text>
+            <Text style={styles.modalSubtitle}>הזן כתובת אתר (למשל כתבה או מאמר):</Text>
+            <TextInput
+              style={[styles.modalInput, { minHeight: 50, textAlign: 'left' }]}
+              placeholder="https://example.com/article..."
+              value={urlInput}
+              onChangeText={setUrlInput}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setShowUrlModal(false)}
+              >
+                <Text style={styles.modalButtonText}>ביטול</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonConfirm]}
+                onPress={handleUrlSubmit}
+              >
+                <Text style={[styles.modalButtonText, { color: 'white' }]}>ייבא</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -945,6 +1030,12 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: 16,
     textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 12,
   },
   modalInput: {
     borderWidth: 1,

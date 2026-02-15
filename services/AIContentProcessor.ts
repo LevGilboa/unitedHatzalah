@@ -233,6 +233,62 @@ ${truncatedContent}
   }
 
   /**
+   * Fetch content from a URL using Bright Data Web Unlocker
+   */
+  async fetchContentFromUrl(url: string): Promise<string> {
+    try {
+      console.log(`[BrightData] Fetching content from ${url}...`);
+
+      const brightDataToken = this.config.apiKey || (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_TOKEN;
+
+      if (!brightDataToken) {
+        throw new Error('חסר מפתח API של Bright Data (EXPO_PUBLIC_BRIGHT_DATA_TOKEN)');
+      }
+
+      // Use Bright Data Web Unlocker API
+      // Zone 'unblocker' or 'web_unlocker' is required
+      const zone = this.config.zone || 'unblocker';
+
+      const response = await fetch('https://api.brightdata.com/request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${brightDataToken}`,
+        },
+        body: JSON.stringify({
+          zone: zone,
+          url: url,
+          format: 'raw', // Get raw HTML/text
+          method: 'GET',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Bright Data error:', response.status, errorText);
+        throw new Error(`שגיאה בטעינת הקישור: ${response.status}`);
+      }
+
+      const html = await response.text();
+
+      // Simple HTML to text conversion (remove tags)
+      // For better results, a library like 'cheerio' or 'jsdom' would be used on backend,
+      // but here we do simple regex cleanup
+      let text = html
+        .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gm, "") // Remove scripts
+        .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gm, "")   // Remove styles
+        .replace(/<[^>]+>/g, " ")                              // Remove HTML tags
+        .replace(/\s+/g, " ")                                  // Normalize whitespace
+        .trim();
+
+      return text;
+    } catch (error) {
+      console.error('Error fetching URL content:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Main method to process uploaded content and generate exercises
    */
   async processContent(
