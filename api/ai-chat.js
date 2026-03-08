@@ -9,6 +9,8 @@
  * Returns: { answer: string }
  */
 
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+
 export default async function handler(req, res) {
     // Only allow POST
     if (req.method !== 'POST') {
@@ -35,6 +37,45 @@ export default async function handler(req, res) {
         ];
 
         let answer = null;
+
+        // ── 0. Try AWS Bedrock (Claude 3 Haiku) ──────────────────────────────────
+        // Note: No EXPO_PUBLIC_ prefix so it is NEVER baked into the client by mistake.
+        const awsKeyId = process.env.AWS_ACCESS_KEY_ID;
+        const awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+        const awsRegion = process.env.AWS_REGION || "us-east-1";
+
+        if (!answer && awsKeyId && awsSecretKey) {
+            try {
+                const client = new BedrockRuntimeClient({
+                    region: awsRegion,
+                    credentials: {
+                        accessKeyId: awsKeyId,
+                        secretAccessKey: awsSecretKey
+                    }
+                });
+
+                const systemText = messages.find(m => m.role === 'system')?.content || '';
+                const claudePayload = {
+                    anthropic_version: "bedrock-2023-05-31",
+                    max_tokens: 1024,
+                    system: systemText,
+                    messages: messages.filter(m => m.role !== 'system')
+                };
+
+                const command = new InvokeModelCommand({
+                    modelId: "anthropic.claude-3-haiku-20240307-v1:0",
+                    contentType: "application/json",
+                    accept: "application/json",
+                    body: JSON.stringify(claudePayload)
+                });
+
+                const response = await client.send(command);
+                const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                answer = responseBody.content?.[0]?.text || null;
+            } catch (e) {
+                console.error('[ai-chat] AWS Bedrock error:', e.message);
+            }
+        }
 
         // ── 1. Try Gemini ────────────────────────────────────────────────────────
         const geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;

@@ -13,6 +13,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Keys to push to Vercel (DO NOT include in client bundle)
 const SECRET_KEYS = [
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_REGION',
     'EXPO_PUBLIC_GEMINI_API_KEY',
     'EXPO_PUBLIC_GROQ_API_KEY',
     'EXPO_PUBLIC_GROQ_MODEL',

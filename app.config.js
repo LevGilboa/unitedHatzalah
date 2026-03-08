@@ -66,6 +66,9 @@ export default {
         },
         extra: {
             router: {
+                // Expo Router needs 'origin' in production to construct absolute URLs correctly.
+                // Without it: "TypeError: Failed to construct 'URL': Invalid URL" → blank screen.
+                ...(IS_VERCEL && { origin: "https://united-hatzalah.vercel.app" }),
                 asyncRoutes: false
             },
             eas: {
