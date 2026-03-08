@@ -598,16 +598,21 @@ ${forceNew ? `
     }
 
     // Chunking logic
-    const CHUNK_SIZE = 6000;
-    // Don't chunk for models with large context windows (Gemini, HuggingFace large models)
-    // Send everything at once for better question quality and coverage
-    const isLargeContextModel = this.config.provider === 'gemini' || this.config.provider === 'huggingface';
+    // Chunking logic
+    // Increased to 50,000 to process almost all content in a single batch as requested
+    const CHUNK_SIZE = 50000;
+
+    // Most modern models (Gemini 1.5, Llama 3.1, etc.) have large context windows.
+    // We'll treat them all as capable unless the content is massive.
+    const isLargeContextModel = true;
     const shouldUseChunks = content.length > CHUNK_SIZE && !isLargeContextModel;
 
     let chunks = [content];
     if (shouldUseChunks) {
       chunks = this.splitContentIntoChunks(content, CHUNK_SIZE);
       console.log(`[AI] Content split into ${chunks.length} chunks of ~${CHUNK_SIZE} chars`);
+    } else {
+      console.log(`[AI] Processing content in a single batch (${content.length} chars)`);
     }
 
     let allExercises: GeneratedExercise[] = [];
