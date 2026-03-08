@@ -1,8 +1,15 @@
 {
   "buildCommand": "npx expo export -p web",
   "outputDirectory": "dist",
-  "framework": null,
   "rewrites": [
+    {
+      "source": "/api/ai-chat",
+      "destination": "/api/ai-chat"
+    },
+    {
+      "source": "/api/huggingface",
+      "destination": "/api/huggingface"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

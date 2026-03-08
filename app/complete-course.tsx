@@ -34,7 +34,8 @@ interface ChatMessage {
     timestamp: number;
 }
 
-// ─── AI Chat Helper ───────────────────────────────────────────────────────────
+// ─── AI Chat Helper (via server-side proxy) ───────────────────────────────────
+// API keys are stored ONLY on the server — never in the browser bundle.
 
 async function askAI(
     question: string,
@@ -58,99 +59,31 @@ ${courseContent.slice(0, 6000)}
 - אם השאלה לא קשורה לחומר, ציין זאת בנימוס
 - השתמש בדוגמאות כשרלוונטי`;
 
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...chatHistory.slice(-6).map(m => ({ role: m.role, content: m.text })),
-        { role: 'user', content: question },
-    ];
+    const history = chatHistory.slice(-8).map(m => ({
+        role: m.role,
+        content: m.text,
+    }));
 
-    // Try Gemini first
-    const geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    if (geminiKey) {
-        try {
-            const geminiMessages = messages.map(m => ({
-                role: m.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: m.content }],
-            }));
-            const response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: geminiMessages,
-                        generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
-                    }),
-                }
-            );
-            if (response.ok) {
-                const data = await response.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (text) return text;
-            }
-        } catch (e) {
-            console.error('Gemini Q&A error:', e);
+    try {
+        // All AI calls go through /api/ai-chat — keys never leave the server
+        const response = await fetch('/api/ai-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, systemPrompt, history }),
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.answer) return data.answer;
         }
+
+        const errData = await response.json().catch(() => ({}));
+        console.error('[askAI] Proxy error:', response.status, errData);
+    } catch (e) {
+        console.error('[askAI] Network error:', e);
     }
 
-    // Fallback: Groq
-    const groqKey = process.env.EXPO_PUBLIC_GROQ_API_KEY;
-    const groqModel = process.env.EXPO_PUBLIC_GROQ_MODEL || 'llama-3.1-70b-versatile';
-    if (groqKey) {
-        try {
-            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${groqKey}`,
-                },
-                body: JSON.stringify({
-                    model: groqModel,
-                    messages,
-                    temperature: 0.7,
-                    max_tokens: 1024,
-                }),
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const text = data.choices?.[0]?.message?.content;
-                if (text) return text;
-            }
-        } catch (e) {
-            console.error('Groq Q&A error:', e);
-        }
-    }
-
-    // Fallback: Ollama
-    const ollamaEndpoint = process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT;
-    const ollamaModel = process.env.EXPO_PUBLIC_OLLAMA_MODEL || 'mistral';
-    if (ollamaEndpoint) {
-        try {
-            const baseUrl = ollamaEndpoint.replace(/\/$/, '');
-            const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': '69420',
-                },
-                body: JSON.stringify({
-                    model: ollamaModel,
-                    messages,
-                    temperature: 0.7,
-                    max_tokens: 1024,
-                }),
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const text = data.choices?.[0]?.message?.content;
-                if (text) return text;
-            }
-        } catch (e) {
-            console.error('Ollama Q&A error:', e);
-        }
-    }
-
-    return 'מצטער, לא הצלחתי לקבל תשובה כרגע. אנא בדוק את חיבור האינטרנט ונסה שנית.';
+    return 'מצטער, לא הצלחתי לקבל תשובה כרגע. אנא בדוק את החיבור לשרת ונסה שנית.';
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────

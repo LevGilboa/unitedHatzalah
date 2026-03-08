@@ -2,6 +2,9 @@
 // This file replaces app.json to allow environment-based configuration
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// Vercel automatically sets VERCEL=1 in its build environment.
+// GitHub Pages does NOT set this, so we use it to distinguish deployments.
+const IS_VERCEL = !!process.env.VERCEL;
 
 export default {
     expo: {
@@ -57,27 +60,20 @@ export default {
         ],
         experiments: {
             typedRoutes: true,
-            // Only set baseUrl for production builds (GitHub Pages)
-            ...(IS_PRODUCTION && { baseUrl: "/unitedHatzalah" })
+            // baseUrl is only needed for GitHub Pages (served under /unitedHatzalah).
+            // On Vercel the app runs at root /, so no baseUrl is needed there.
+            ...(IS_PRODUCTION && !IS_VERCEL && { baseUrl: "/unitedHatzalah" })
         },
         extra: {
             router: {
-                // Only set origin for production builds (GitHub Pages)
-                // During development, this should be empty/undefined to use localhost
-                ...(IS_PRODUCTION && { origin: "https://levgilboa.github.io" }),
                 asyncRoutes: false
             },
             eas: {
                 projectId: "d10248c4-1c0b-4d84-9360-cbf0071b20be"
             },
-            // Pass environment variables through expo config
-            EXPO_PUBLIC_GROQ_API_KEY: process.env.EXPO_PUBLIC_GROQ_API_KEY,
-            EXPO_PUBLIC_GROQ_MODEL: process.env.EXPO_PUBLIC_GROQ_MODEL,
-            EXPO_PUBLIC_GEMINI_API_KEY: process.env.EXPO_PUBLIC_GEMINI_API_KEY,
-            EXPO_PUBLIC_HUGGINGFACE_API_KEY: process.env.EXPO_PUBLIC_HUGGINGFACE_API_KEY,
-            EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
-            EXPO_PUBLIC_OLLAMA_ENDPOINT: process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT,
-            EXPO_PUBLIC_OLLAMA_MODEL: process.env.EXPO_PUBLIC_OLLAMA_MODEL,
+            // ⚠️  AI API keys are NOT here — they live only in Vercel Environment Variables
+            // and are accessed by /api/ai-chat.js (Vercel Serverless Function).
+            // Only non-secret config goes here:
             EXPO_PUBLIC_AI_PROVIDER: process.env.EXPO_PUBLIC_AI_PROVIDER
         }
     }
