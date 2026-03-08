@@ -60,16 +60,18 @@ for (const key of SECRET_KEYS) {
     }
 
     try {
-        // Use printf to avoid shell escaping issues
-        // Remove existing env var first (ignore errors), then add
+        // Remove existing env var first (ignore errors)
         try {
-            execSync(`npx vercel env rm ${key} production --yes 2>nul`, { stdio: 'pipe' });
-        } catch (_) { /* OK if it didn't exist */ }
+            execSync(`npx vercel env rm ${key} production --yes`, { stdio: 'ignore' });
+            execSync(`npx vercel env rm ${key} preview --yes`, { stdio: 'ignore' });
+        } catch (_) { }
 
-        // Add for production + preview
+        // Add for production + preview using --value for clean transport
         for (const env of ['production', 'preview']) {
-            const cmd = `echo ${JSON.stringify(value)} | npx vercel env add ${key} ${env} --force`;
-            execSync(cmd, { stdio: 'pipe', shell: true });
+            // We use JSON.stringify to handle spaces, and then wrap in extra quotes for the shell if needed
+            // On Windows, the safest is often to use the --value flag directly.
+            const cmd = `npx vercel env add ${key} ${env} --value ${JSON.stringify(value)} --yes --force`;
+            execSync(cmd, { stdio: 'pipe' });
         }
 
         console.log(`✅ ${key} → production + preview`);

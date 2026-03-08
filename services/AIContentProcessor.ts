@@ -14,13 +14,17 @@ import { Platform } from 'react-native';
  */
 
 interface AIConfig {
-  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama' | 'huggingface';
+  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama' | 'huggingface' | 'bedrock';
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
   zone?: string; // Bright Data Zone name (default: unblocker)
   ollamaEndpoint?: string; // Ollama API endpoint (default: http://localhost:11434)
-  // Fal  lback configuration
+  // AWS Bedrock configuration
+  awsAccessKeyId?: string;
+  awsSecretAccessKey?: string;
+  awsRegion?: string;
+  // Fallback configuration
   fallbackOpenAIKey?: string;
   fallbackOpenAIModel?: string;
 }
@@ -167,6 +171,32 @@ ${truncatedContent}
               parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false }
             }),
           });
+        }
+      } else if (this.config.provider === 'bedrock') {
+        // AWS Bedrock - use the server-side API route to handle AWS SDK calls
+        if (Platform.OS === 'web') {
+          response = await fetch('/api/ai-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: prompt,
+              systemPrompt: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.',
+              history: []
+            }),
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            const text = result.answer || '';
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.title && parsed.subject) {
+                return { title: parsed.title, subject: parsed.subject };
+              }
+            }
+          }
+          return null;
         }
       }
 
@@ -684,6 +714,9 @@ ${previousQuestionsSection}
       if (this.config.provider === 'huggingface' && this.config.apiKey) {
         console.log('🟢 Trying Hugging Face API (primary)...');
         chunkResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
+      } else if (this.config.provider === 'bedrock') {
+        console.log('🟢 Trying Bedrock API (primary)...');
+        chunkResult = await this.callBedrockAPI(prompt, request.contentId, analysis);
       } else if (this.config.provider === 'gemini' && this.config.apiKey) {
         console.log('🟢 Trying Gemini API (primary)...');
         chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
@@ -991,6 +1024,45 @@ ${previousQuestionsSection}
       }
     }
     return null;
+  }
+
+  /**
+   * Call Bedrock API via Vercel Proxy
+   */
+  private async callBedrockAPI(
+    prompt: string,
+    contentId: string,
+    analysis: any
+  ): Promise<GeneratedExercise[] | null> {
+    try {
+      console.log(`[Bedrock] Sending request via /api/ai-chat proxy...`);
+      // Since this is the web platform, we use our Vercel Serverless Function
+      const response = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: prompt,
+          systemPrompt: 'אתה מורה מומחה שעוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד.',
+          history: []
+        }),
+      });
+
+      console.log('Bedrock API via Proxy response status:', response.status);
+
+      if (!response.ok) {
+        console.error('Bedrock Proxy error:', await response.text());
+        return null;
+      }
+
+      const data = await response.json();
+      const responseText = data.answer || '';
+      console.log('Bedrock Proxy (Claude) response length:', responseText.length);
+      
+      return this.parseExercisesFromResponse(responseText, contentId, analysis);
+    } catch (error) {
+      console.error('Bedrock Proxy request error:', error);
+      return null;
+    }
   }
 
   /**
@@ -2079,6 +2151,11 @@ ${previousQuestionsSection}
         if (result !== null) {
           return result;
         }
+      } else if (this.config.provider === 'bedrock') {
+        const result = await this.callAIForAnswerCheck(question, userAnswer, correctAnswer);
+        if (result !== null) {
+          return result;
+        }
       }
     } catch (error) {
       console.error('AI answer check failed:', error);
@@ -2200,6 +2277,16 @@ ${previousQuestionsSection}
             max_tokens: 150,
           }),
         });
+      } else if (this.config.provider === 'bedrock' && Platform.OS === 'web') {
+        response = await fetch('/api/ai-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: prompt,
+            systemPrompt: 'אתה מורה אובייקטיבי שבודק תשובות של תלמידים. תמיד החזר JSON תקין בלבד.',
+            history: []
+          }),
+        });
       }
 
       if (response && response.ok) {
@@ -2210,6 +2297,8 @@ ${previousQuestionsSection}
           text = data.choices?.[0]?.message?.content || '';
         } else if (this.config.provider === 'gemini') {
           text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else if (this.config.provider === 'bedrock') {
+          text = data.answer || '';
         }
 
         const jsonMatch = text.match(/\{[\s\S]*\}/);
