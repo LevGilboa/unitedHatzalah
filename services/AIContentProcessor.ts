@@ -941,34 +941,12 @@ ${previousQuestionsSection}
    */
   private cleanJsonString(jsonString: string): string {
     // 1. Remove non-printable control characters
-    jsonString = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    let cleaned = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
-    // 2. Fix unescaped newlines within quoted strings (common issue with large AI outputs)
-    let inString = false;
-    let escaped = false;
-    let result = '';
-    for (let i = 0; i < jsonString.length; i++) {
-        const char = jsonString[i];
-        if (char === '"' && !escaped) {
-            inString = !inString;
-        }
-        escaped = (char === '\\' && !escaped);
-        
-        if (inString && (char === '\n' || char === '\r')) {
-            result += '\\n';
-        } else {
-            result += char;
-        }
-    }
-    jsonString = result;
+    // 2. Remove trailing commas (e.g., [1, 2, ])
+    cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
 
-    // 3. Remove trailing commas (e.g., [1, 2, ])
-    jsonString = jsonString.replace(/,(?=\s*[}\]])/g, '');
-
-    // 4. Ensure keys are quoted
-    jsonString = jsonString.replace(/([{,]\s*)(\w+):/g, '$1"$2":');
-
-    return jsonString;
+    return cleaned;
   }
 
   /**

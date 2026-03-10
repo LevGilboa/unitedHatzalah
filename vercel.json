@@ -3,12 +3,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/ai-chat",
-      "destination": "/api/ai-chat"
-    },
-    {
-      "source": "/api/huggingface",
-      "destination": "/api/huggingface"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
       "source": "/(.*)",
