@@ -20,3 +20,6 @@ yarn-error.log*
 
 # Misc
 .DS_Store
+
+# Vercel project configuration
+.vercel/

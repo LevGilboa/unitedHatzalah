@@ -45,19 +45,20 @@ async function askAI(
 ): Promise<string> {
     const systemPrompt = `אתה עוזר לימוד חכם המסייע לתלמיד להבין חומר לימוד.
 ענה על שאלות התלמיד בעברית בצורה ברורה, מפורטת ומועילה.
-התבסס על תוכן הקורס הבא:
+התבסס על תוכן הקורס הבא (מספר קבצים מחוברים המסומנים ב"--- מקור: שם_קובץ ---"):
 
 סיכום הקורס:
 ${courseSummary}
 
-תוכן הקורס (חלקי):
-${courseContent.slice(0, 6000)}
+תוכן הקורס (חלקי עד 40000 תווים):
+${courseContent.slice(0, 40000)}
 
-כללים:
-- ענה תמיד בעברית
-- הסבר בצורה ברורה ומובנת
-- אם השאלה לא קשורה לחומר, ציין זאת בנימוס
-- השתמש בדוגמאות כשרלוונטי`;
+כללים קריטיים:
+- ענה תמיד בעברית בלבד.
+- הסבר בצורה ברורה ומובנת.
+- **מודעות הקשר (Context-Aware):** שים לב למקורות השונים שמהם לקוח המידע. כאשר אתה מצטט או מתבסס על מידע ספציפי, ציין במפורש מאיזה מקור הוא לקוח (למשל: "לפי הקובץ 'אנטומיה.pdf'...").
+- אם השאלה לא קשורה לחומר, ציין זאת בנימוס המירבי.
+- השתמש בדוגמאות כשרלוונטי מתוך החומר.`;
 
     const history = chatHistory.slice(-8).map(m => ({
         role: m.role,
@@ -102,8 +103,10 @@ export default function CompleteCourseView() {
     const [course, setCourse] = useState<CompleteCourse | null>(null);
     const [fadeAnim] = useState(new Animated.Value(0));
 
-    // Summary modal state
+    // Summary modal/Stories state
     const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+    const [storyIndex, setStoryIndex] = useState(0);
+    const [storyPages, setStoryPages] = useState<string[]>([]);
 
     // Chat / Q&A agent state
     const [chatModalVisible, setChatModalVisible] = useState(false);
@@ -128,6 +131,23 @@ export default function CompleteCourseView() {
             }).start();
         }
     }, [courseId]);
+
+    // Handle splitting summary into stories
+    useEffect(() => {
+        if (summaryModalVisible && course?.summary) {
+            // Split into short sentences/paragraphs for micro-learning
+            let pages = course.summary
+                .split(/(?<=[.!?\n])\s+/) // Split by sentence boundaries roughly
+                .map(s => s.trim())
+                .filter(s => s.length > 10);
+                
+            if (pages.length === 0) {
+                pages = [course.summary];
+            }
+            setStoryPages(pages);
+            setStoryIndex(0);
+        }
+    }, [summaryModalVisible, course?.summary]);
 
     const handlePhasePress = (phase: CoursePhase) => {
         if (phase.isLocked) {
@@ -281,11 +301,32 @@ export default function CompleteCourseView() {
                         onPress={() => setSummaryModalVisible(true)}
                         activeOpacity={0.8}
                     >
-                        <Text style={styles.readMoreText}>קרא עוד</Text>
-                        <Ionicons name="chevron-down" size={14} color={Colors.purple} />
+                        <Text style={styles.readMoreText}>מיקרו-למידה ⚡</Text>
+                        <Ionicons name="play-circle" size={16} color={Colors.purple} />
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {/* Key Topics (Mind Map Lite) */}
+            {course.keyTopics && course.keyTopics.length > 0 && (
+                <View style={styles.mindMapContainer}>
+                    <Text style={styles.sectionTitle}>מפת הנושאים</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mindMapScroll}>
+                        <View style={styles.mindMapCenterNode}>
+                            <MaterialCommunityIcons name="brain" size={20} color={Colors.white} />
+                            <Text style={styles.mindMapCenterText}>{course.subject || 'הקורס שלי'}</Text>
+                        </View>
+                        {course.keyTopics.map((topic, index) => (
+                            <View key={index} style={styles.mindMapBranch}>
+                                <View style={styles.mindMapConnector} />
+                                <View style={styles.mindMapTopicNode}>
+                                    <Text style={styles.mindMapTopicText}>{topic}</Text>
+                                </View>
+                            </View>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
 
             {/* Phases */}
             <ScrollView
@@ -406,48 +447,65 @@ export default function CompleteCourseView() {
                 <Text style={styles.chatFabText}>שאל את הAI</Text>
             </TouchableOpacity>
 
-            {/* ── Summary Modal ── */}
+            {/* ── Stories UI Summary Modal ── */}
             <Modal
                 visible={summaryModalVisible}
-                animationType="slide"
+                animationType="fade"
                 transparent
                 onRequestClose={() => setSummaryModalVisible(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContainer}>
-                        {/* Modal Header */}
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>סיכום הקורס המלא</Text>
-                            <TouchableOpacity
-                                style={styles.modalCloseBtn}
-                                onPress={() => setSummaryModalVisible(false)}
-                            >
-                                <Ionicons name="close" size={22} color={Colors.textDark} />
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Key Topics */}
-                        {course.keyTopics && course.keyTopics.length > 0 && (
-                            <View style={styles.keyTopicsContainer}>
-                                <Text style={styles.keyTopicsLabel}>נושאים מרכזיים:</Text>
-                                <View style={styles.keyTopicsRow}>
-                                    {course.keyTopics.slice(0, 8).map((topic, i) => (
-                                        <View key={i} style={styles.topicChip}>
-                                            <Text style={styles.topicChipText}>{topic}</Text>
-                                        </View>
-                                    ))}
-                                </View>
+                <View style={styles.storyOverlay}>
+                    {/* Top Progress Bars */}
+                    <View style={styles.storyProgressContainer}>
+                        {storyPages.map((_, index) => (
+                            <View key={index} style={styles.storyProgressBarBg}>
+                                <View style={[
+                                    styles.storyProgressBarFill,
+                                    { width: index < storyIndex ? '100%' : index === storyIndex ? '100%' : '0%' }
+                                ]} />
                             </View>
-                        )}
-
-                        {/* Scrollable Summary */}
-                        <ScrollView
-                            style={styles.modalScrollView}
-                            showsVerticalScrollIndicator={true}
-                            contentContainerStyle={{ paddingBottom: 16 }}
+                        ))}
+                    </View>
+                    
+                    {/* Close Button & Title */}
+                    <View style={styles.storyHeader}>
+                        <Text style={styles.storyTitle}>סיכום מיקרו-למידה</Text>
+                        <TouchableOpacity
+                            style={styles.storyCloseBtn}
+                            onPress={() => setSummaryModalVisible(false)}
                         >
-                            <Text style={styles.modalSummaryText}>{course.summary}</Text>
-                        </ScrollView>
+                            <Ionicons name="close" size={28} color={Colors.white} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Content area */}
+                    <View style={styles.storyContentArea}>
+                        {storyPages.length > 0 && (
+                            <Text style={styles.storyText}>{storyPages[storyIndex]}</Text>
+                        )}
+                    </View>
+                    
+                    {/* Navigation Overlays */}
+                    <View style={styles.storyNavContainer}>
+                        {/* Note: In RTL (Hebrew), tapping left goes to next story, tapping right goes to previous */}
+                        <TouchableOpacity 
+                            style={styles.storyNavLeft} 
+                            activeOpacity={1}
+                            onPress={() => {
+                                if (storyIndex < storyPages.length - 1) {
+                                    setStoryIndex(prev => prev + 1);
+                                } else {
+                                    setSummaryModalVisible(false); // End of stories
+                                }
+                            }}
+                        />
+                        <TouchableOpacity 
+                            style={styles.storyNavRight} 
+                            activeOpacity={1}
+                            onPress={() => {
+                                if (storyIndex > 0) setStoryIndex(prev => prev - 1);
+                            }}
+                        />
                     </View>
                 </View>
             </Modal>
@@ -1094,5 +1152,137 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.lightGray,
         shadowOpacity: 0,
         elevation: 0,
+    },
+    // Stories UI Styles
+    storyOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.95)',
+        justifyContent: 'center',
+    },
+    storyProgressContainer: {
+        flexDirection: 'row',
+        position: 'absolute',
+        top: 50,
+        left: 10,
+        right: 10,
+        gap: 4,
+        zIndex: 10,
+    },
+    storyProgressBarBg: {
+        flex: 1,
+        height: 3,
+        backgroundColor: 'rgba(255,255,255,0.3)',
+        borderRadius: 2,
+        overflow: 'hidden',
+    },
+    storyProgressBarFill: {
+        height: '100%',
+        backgroundColor: Colors.white,
+    },
+    storyHeader: {
+        position: 'absolute',
+        top: 70,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    storyTitle: {
+        color: Colors.white,
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    storyCloseBtn: {
+        padding: 4,
+    },
+    storyContentArea: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 30,
+        zIndex: 5,
+    },
+    storyText: {
+        color: Colors.white,
+        fontSize: 28,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        lineHeight: 40,
+    },
+    storyNavContainer: {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        zIndex: 8,
+    },
+    storyNavLeft: {
+        flex: 1,
+    },
+    storyNavRight: {
+        flex: 1,
+    },
+    // Mind Map Styles
+    mindMapContainer: {
+        marginTop: 8,
+        marginBottom: 16,
+    },
+    mindMapScroll: {
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        alignItems: 'center',
+        flexDirection: 'row',
+    },
+    mindMapCenterNode: {
+        backgroundColor: Colors.purple,
+        borderRadius: 24,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        shadowColor: Colors.purple,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 6,
+        marginRight: 10,
+    },
+    mindMapCenterText: {
+        color: Colors.white,
+        fontWeight: 'bold',
+        fontSize: 15,
+    },
+    mindMapBranch: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    mindMapConnector: {
+        width: 20,
+        height: 2,
+        backgroundColor: Colors.purple,
+        opacity: 0.3,
+    },
+    mindMapTopicNode: {
+        backgroundColor: Colors.white,
+        borderWidth: 1,
+        borderColor: 'rgba(156, 39, 176, 0.2)',
+        borderRadius: 20,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    mindMapTopicText: {
+        color: Colors.textDark,
+        fontSize: 14,
+        fontWeight: '500',
     },
 });

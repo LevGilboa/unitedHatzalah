@@ -194,8 +194,8 @@ export default function ExerciseViewer({
   };
 
   const checkAnswer = async () => {
-    // For fill-blank and short-answer, use textAnswer
-    const answerToCheck = exercise.type === 'fill-blank' || exercise.type === 'short-answer'
+    // For fill-blank, short-answer, and scenario, use textAnswer
+    const answerToCheck = exercise.type === 'fill-blank' || exercise.type === 'short-answer' || exercise.type === 'scenario'
       ? textAnswer.trim()
       : selectedAnswer;
 
@@ -208,7 +208,7 @@ export default function ExerciseViewer({
     const correctAnswer = exercise.correctAnswer;
     let isAnswerCorrect = false;
 
-    if (exercise.type === 'fill-blank' || exercise.type === 'short-answer') {
+    if (exercise.type === 'fill-blank' || exercise.type === 'short-answer' || exercise.type === 'scenario') {
       // For text answers, use AI-powered semantic checking
       setIsCheckingAnswer(true);
       setAiFeedback(null);
@@ -270,6 +270,8 @@ export default function ExerciseViewer({
         return renderMatching();
       case 'short-answer':
         return renderShortAnswer();
+      case 'scenario':
+        return renderScenario();
       case 'ordering':
         return renderOrdering();
       default:
@@ -567,6 +569,46 @@ export default function ExerciseViewer({
       {showFeedback && !isCorrect && (
         <Text style={styles.correctAnswerText}>
           התשובה הנכונה: {exercise.correctAnswer}
+        </Text>
+      )}
+    </View>
+  );
+
+  const renderScenario = () => (
+    <View style={styles.exerciseContent}>
+      <Text style={[styles.question, { fontSize: 18, lineHeight: 28 }]}>{exercise.question}</Text>
+      <View style={{ backgroundColor: 'rgba(156, 39, 176, 0.05)', padding: 12, borderRadius: 12, marginBottom: 16 }}>
+        <Text style={{ color: Colors.purple, fontWeight: 'bold', marginBottom: 4 }}>🎯 תרחיש פעולה</Text>
+        <Text style={{ color: Colors.textDark }}>איך היית פועל במצב הזה? פרט את השלבים.</Text>
+      </View>
+      <TextInput
+        style={[
+          styles.textInputAnswer,
+          { height: 120, textAlignVertical: 'top', paddingTop: 16 },
+          showFeedback && isCorrect && styles.textInputCorrect,
+          showFeedback && !isCorrect && styles.textInputIncorrect,
+        ]}
+        placeholder="הקלד את דרך הפעולה שלך כאן..."
+        placeholderTextColor="#999"
+        value={textAnswer}
+        onChangeText={setTextAnswer}
+        editable={!showFeedback && !isCheckingAnswer}
+        textAlign="right"
+        multiline
+        numberOfLines={6}
+      />
+      {isCheckingAnswer && (
+        <View style={styles.checkingAnswerContainer}>
+          <ActivityIndicator size="small" color={Colors.accent} />
+          <Text style={styles.checkingAnswerText}>ה-AI מנתח את הפעולה שלך...</Text>
+        </View>
+      )}
+      {showFeedback && isCorrect && aiFeedback && (
+        <Text style={styles.aiFeedbackText}>{aiFeedback}</Text>
+      )}
+      {showFeedback && !isCorrect && (
+        <Text style={styles.correctAnswerText}>
+          הפעולה המצופה: {exercise.correctAnswer}
         </Text>
       )}
     </View>

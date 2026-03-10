@@ -25,6 +25,16 @@ import { gameEffects } from '@/services/GameEffects';
 import CookieDisplay from '@/components/ui/CookieDisplay';
 import { useCookieStore, COOKIE_REWARDS } from '@/stores/cookieStore';
 
+const getDiffScore = (diff: string) => {
+    switch (diff) {
+        case 'easy': return 0;
+        case 'medium': return 1;
+        case 'hard': return 2;
+        case 'expert': return 3;
+        default: return 1;
+    }
+};
+
 export default function CompleteCoursePhase() {
     const router = useRouter();
     const { courseId, phaseOrder } = useLocalSearchParams<{
@@ -38,6 +48,7 @@ export default function CompleteCoursePhase() {
         regeneratePhase,
         currentPhase,
         setCurrentPhase,
+        addFailedExercise,
     } = useCompleteCourseStore();
 
     const { addCookies, spendCookies } = useCookieStore();
@@ -58,7 +69,25 @@ export default function CompleteCoursePhase() {
             if (course) {
                 const phaseNum = parseInt(phaseOrder);
                 const loadedPhase = course.phases.find(p => p.order === phaseNum);
-                setPhase(loadedPhase || null);
+                
+                if (loadedPhase && phaseNum === 4 && course.failedExercises && course.failedExercises.length > 0) {
+                    // SRS logic: mix in up to 5 failed exercises
+                    const failedExs = [...course.failedExercises].sort(() => Math.random() - 0.5).slice(0, 5);
+                    const failedIds = failedExs.map(e => e.id);
+                    const originals = loadedPhase.exercises.filter(e => !failedIds.includes(e.id));
+                    
+                    const mixedExercises = [...failedExs, ...originals].slice(0, Math.max(10, loadedPhase.exercises.length));
+                    const randomizedExercises = mixedExercises.sort(() => Math.random() - 0.5);
+                    
+                    setPhase({
+                        ...loadedPhase,
+                        exercises: randomizedExercises,
+                        title: '🔄 חזרת על טעויות העבר'
+                    });
+                } else {
+                    setPhase(loadedPhase || null);
+                }
+                
                 setCurrentPhase(phaseNum);
             }
         }
@@ -87,8 +116,45 @@ export default function CompleteCoursePhase() {
             addCookies(COOKIE_REWARDS.CORRECT_ANSWER, 'תשובה נכונה! ✓');
         } else {
             addCookies(COOKIE_REWARDS.WRONG_ANSWER, 'ניסיון טוב');
+            
+            // SRS Tracking: Save failed exercises for Spaced Repetition (Phase 4)
+            if (courseId && phase) {
+                const completedExercise = phase.exercises.find(e => e.id === exerciseId);
+                if (completedExercise) {
+                    addFailedExercise(courseId, completedExercise);
+                }
+            }
         }
-    }, []);
+
+        // --- Adaptive Difficulty: Swap next question ---
+        if (phase) {
+            const nextIndex = currentExerciseIndex + 1;
+            if (nextIndex < phase.exercises.length) {
+                const remaining = [...phase.exercises];
+                const currentDiffScore = getDiffScore(remaining[currentExerciseIndex].difficulty);
+                const targetDiffScore = isCorrect ? Math.min(3, currentDiffScore + 1) : Math.max(0, currentDiffScore - 1);
+                
+                let bestMatchIdx = nextIndex;
+                let minDiffDifference = 99;
+                
+                for (let i = nextIndex; i < remaining.length; i++) {
+                    const dScore = getDiffScore(remaining[i].difficulty);
+                    const diffDiff = Math.abs(dScore - targetDiffScore);
+                    if (diffDiff < minDiffDifference) {
+                        minDiffDifference = diffDiff;
+                        bestMatchIdx = i;
+                    }
+                }
+                
+                if (bestMatchIdx !== nextIndex) {
+                    const temp = remaining[nextIndex];
+                    remaining[nextIndex] = remaining[bestMatchIdx];
+                    remaining[bestMatchIdx] = temp;
+                    setPhase({ ...phase, exercises: remaining });
+                }
+            }
+        }
+    }, [addCookies, courseId, phase, currentExerciseIndex, addFailedExercise]);
 
     const handleNext = useCallback(() => {
         if (!phase) return;
@@ -165,7 +231,22 @@ export default function CompleteCoursePhase() {
             const course = getCompleteCourse(courseId);
             if (course) {
                 const updatedPhase = course.phases.find(p => p.order === phase.order);
-                setPhase(updatedPhase || null);
+                
+                if (updatedPhase && updatedPhase.order === 4 && course.failedExercises && course.failedExercises.length > 0) {
+                    const failedExs = [...course.failedExercises].sort(() => Math.random() - 0.5).slice(0, 5);
+                    const failedIds = failedExs.map(e => e.id);
+                    const originals = updatedPhase.exercises.filter(e => !failedIds.includes(e.id));
+                    
+                    const mixedExercises = [...failedExs, ...originals].slice(0, Math.max(10, updatedPhase.exercises.length));
+                    
+                    setPhase({
+                        ...updatedPhase,
+                        exercises: mixedExercises.sort(() => Math.random() - 0.5),
+                        title: '🔄 חזרת על טעויות העבר'
+                    });
+                } else {
+                    setPhase(updatedPhase || null);
+                }
             }
             handleRetry();
             Alert.alert('הצלחה', 'נוצרו שאלות חדשות!');

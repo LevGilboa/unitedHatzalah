@@ -242,19 +242,70 @@ ${truncatedContent}
     topics: string[];
     structure: string[];
   }> {
-    // This would call the AI API to analyze content
-    // For now, returning a simple analysis structure
+    try {
+      // Create a prompt for the AI to analyze the content
+      const analysisPrompt = `אנא נתח את הטקסט הבא בתחום ${subject}.
+המטרה שלך היא להחזיר אובייקט JSON תקני בלבד המכיל את הסיכום והנושאים המרכזיים של הטקסט.
 
-    const contentLength = content.length;
-    const sentenceCount = (content.match(/[.!?]+/g) || []).length;
-    const words = content.split(/\s+/);
-    const wordCount = words.length;
+הטקסט לניתוח:
+${content.substring(0, 30000)} ${content.length > 30000 ? '... (הטקסט קוצר)' : ''}
 
-    return {
-      summary: `Analyzed ${wordCount} words across ${sentenceCount} sentences in the subject: ${subject}`,
-      topics: this.extractKeyTopics(content, subject),
-      structure: this.identifyContentStructure(content),
-    };
+עליך להחזיר אך ורק JSON במבנה הבא:
+\`\`\`json
+{
+  "summary": "סיכום מקיף וברור של כל החומר (כ-3-5 פסקאות)",
+  "topics": ["נושא מרכזי 1", "נושא מרכזי 2", "נושא מרכזי 3", "נושא מרכזי 4", "נושא מרכזי 5"]
+}
+\`\`\`
+חשוב: החזר רק את ה-JSON, ללא שום טקסט מקדים או עוקב.`;
+
+      // Use the proxy directly to get the summary
+      const response = await fetch(this.getProxyUrl(''), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: 'Analyze content',
+          systemPrompt: analysisPrompt,
+          history: []
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Proxy error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const answer = data.answer || '';
+      
+      // Extract JSON from response
+      const jsonMatch = answer.match(/```json\n([\s\S]*?)\n```/) || answer.match(/```([\s\S]*?)```/) || [null, answer];
+      const jsonStr = jsonMatch[1].trim();
+      
+      const parsedData = JSON.parse(jsonStr);
+      
+      return {
+        summary: parsedData.summary || 'לא ניתן היה לייצר סיכום.',
+        topics: parsedData.topics || this.extractKeyTopics(content, subject),
+        structure: this.identifyContentStructure(content),
+      };
+
+    } catch (e) {
+      console.error('[AI] Content analysis failed, falling back to basic analysis:', e);
+      
+      // Fallback if AI fails
+      const contentLength = content.length;
+      const sentenceCount = (content.match(/[.!?]+/g) || []).length;
+      const words = content.split(/\s+/);
+      const wordCount = words.length;
+
+      return {
+        summary: `טקסט בנושא ${subject} הכולל ${wordCount} מילים ב-${sentenceCount} משפטים. לא ניתן היה להפיק סיכום אוטומטי.`,
+        topics: this.extractKeyTopics(content, subject),
+        structure: this.identifyContentStructure(content),
+      };
+    }
   }
 
   /**
@@ -555,7 +606,8 @@ ${previousQuestionsSection}
 \`\`\`
 
 חשוב מאוד:
-- שדה type חייב להיות אחד מאלה בלבד: "multiple-choice", "true-false", "fill-blank", "short-answer".
+- שדה type חייב להיות אחד מאלה בלבד: "multiple-choice", "true-false", "fill-blank", "short-answer", "scenario".
+- עבור "scenario", ה-question צריך להיות תרחיש רפואי או משחקי תפקידים מפורט שמצריך מהתלמיד תשובה חופשית. אל תספק options. מצופה תשובה חופשית לתשובה הנכונה.
 - correctAnswer חייב להיות 0 או 1 עבור true-false.
 - options חייב להיות ["נכון", "לא נכון"] עבור true-false.
 - הקפד על JSON תקין לחלוטין.
@@ -893,7 +945,7 @@ ${previousQuestionsSection}
     contentId: string,
     analysis: any
   ): GeneratedExercise[] {
-    const supportedTypes = ['multiple-choice', 'true-false', 'fill-blank', 'short-answer'];
+    const supportedTypes = ['multiple-choice', 'true-false', 'fill-blank', 'short-answer', 'scenario'];
     
     return exercises.map((ex: any, index: number) => {
       let safeType = ex.type || 'multiple-choice';

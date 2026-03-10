@@ -6,7 +6,8 @@ export type ExerciseType =
   | 'matching'
   | 'true-false'
   | 'short-answer'
-  | 'ordering';
+  | 'ordering'
+  | 'scenario';
 
 export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert';
 
@@ -194,6 +195,7 @@ export interface CompleteCourse {
   completedAt?: number;             // מתי סיימו את הקורס
   status: 'in-progress' | 'completed' | 'not-started';
   masteryLevel: number;             // רמת השליטה 0-100
+  failedExercises?: GeneratedExercise[]; // For Spaced Repetition (SRS)
 }
 
 export interface CourseProgress {
@@ -259,7 +261,7 @@ export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
     description: 'שאלות מאתגרות לבדיקת הבנה עמוקה',
     exerciseCount: 10,
     difficulties: ['medium', 'hard'],
-    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false', 'scenario'],
     requiredScore: 75,
   },
   {
@@ -277,7 +279,7 @@ export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
     description: 'מבחן מקיף על כל החומר - הוכח שאתה שולט!',
     exerciseCount: 15,
     difficulties: ['medium', 'hard', 'expert'],
-    exerciseTypes: ['multiple-choice', 'fill-blank', 'short-answer', 'true-false'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'short-answer', 'true-false', 'scenario'],
     requiredScore: 85,
   },
 ];

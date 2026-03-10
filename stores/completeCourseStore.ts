@@ -11,6 +11,7 @@ import {
     CompleteCourse,
     CoursePhase,
     CourseGenerationRequest,
+    GeneratedExercise,
 } from '@/types/ai-learning';
 import { CourseGeneratorService } from '@/services/CourseGenerator';
 
@@ -42,6 +43,7 @@ interface CompleteCourseStore {
     updatePhaseScore: (courseId: string, phaseOrder: number, score: number) => void;
     regeneratePhase: (courseId: string, phaseOrder: number) => Promise<boolean>;
     deleteCompleteCourse: (courseId: string) => void;
+    addFailedExercise: (courseId: string, exercise: GeneratedExercise) => void;
     clearError: () => void;
 
     // Getters
@@ -221,6 +223,36 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
                     currentCompleteCourse: state.currentCompleteCourse?.id === courseId ? null : state.currentCompleteCourse,
                     currentPhase: state.currentCompleteCourse?.id === courseId ? null : state.currentPhase,
                 }));
+            },
+
+            // Add failed exercise for Spaced Repetition
+            addFailedExercise: (courseId, exercise) => {
+                set(state => {
+                    const courseIndex = state.completeCourses.findIndex(c => c.id === courseId);
+                    if (courseIndex === -1) return state;
+
+                    const course = state.completeCourses[courseIndex];
+                    const failedExercises = course.failedExercises || [];
+                    
+                    // Don't add if already exists
+                    if (failedExercises.some(ex => ex.id === exercise.id)) {
+                        return state;
+                    }
+
+                    const updatedCourse = {
+                        ...course,
+                        failedExercises: [...failedExercises, exercise],
+                        updatedAt: Date.now()
+                    };
+
+                    const newCourses = [...state.completeCourses];
+                    newCourses[courseIndex] = updatedCourse;
+
+                    return {
+                        completeCourses: newCourses,
+                        currentCompleteCourse: state.currentCompleteCourse?.id === courseId ? updatedCourse : state.currentCompleteCourse
+                    };
+                });
             },
 
             // Clear error
