@@ -128,8 +128,10 @@ export default function CreateCompleteCourse() {
 
     const [title, setTitle] = useState('');
     const [subject, setSubject] = useState('');
-    const [fileContent, setFileContent] = useState('');
-    const [fileName, setFileName] = useState('');
+    
+    // New state to hold multiple parts
+    const [uploadedParts, setUploadedParts] = useState<{ id: string; name: string; content: string; type: 'file' | 'text' }[]>([]);
+    
     const [showPasteModal, setShowPasteModal] = useState(false);
     const [pastedText, setPastedText] = useState('');
     const [uploadProgress, setUploadProgress] = useState('');
@@ -212,10 +214,18 @@ export default function CreateCompleteCourse() {
                     return;
                 }
 
-                setFileContent(content);
-                setFileName(file.name);
+                setUploadedParts(prev => [
+                    ...prev,
+                    {
+                        id: `part-${Date.now()}`,
+                        name: file.name,
+                        content,
+                        type: 'file',
+                    }
+                ]);
+                
                 setUploadProgress('');
-                Alert.alert('הצלחה', `"${file.name}" נטען (${content.length} תווים)`);
+                Alert.alert('הצלחה', `"${file.name}" התווסף בהצלחה (${content.length} תווים)`);
             }
         } catch (error) {
             console.error('Error picking file:', error);
@@ -226,19 +236,26 @@ export default function CreateCompleteCourse() {
 
     const handlePasteConfirm = () => {
         if (pastedText.trim()) {
-            setFileContent(pastedText);
-            setFileName(`text-${Date.now()}`);
+            setUploadedParts(prev => [
+                ...prev,
+                {
+                    id: `part-${Date.now()}`,
+                    name: `טקסט מודבק (${pastedText.substring(0, 10)}...)`,
+                    content: pastedText,
+                    type: 'text',
+                }
+            ]);
             setShowPasteModal(false);
             setPastedText('');
-            Alert.alert('הצלחה', 'הטקסט נטען בהצלחה');
+            Alert.alert('הצלחה', 'הטקסט התווסף בהצלחה');
         } else {
             Alert.alert('שגיאה', 'אנא הזן טקסט');
         }
     };
 
     const handleCreateCourse = async () => {
-        if (!fileContent.trim()) {
-            Alert.alert('שגיאה', 'אנא העלה או הדבק תוכן ללימוד');
+        if (uploadedParts.length === 0) {
+            Alert.alert('שגיאה', 'אנא העלה קבצים או הדבק טקסט');
             return;
         }
 
@@ -246,14 +263,20 @@ export default function CreateCompleteCourse() {
         const userId = user?.email || `guest-${Date.now()}`;
         const contentId = `content-${Date.now()}`;
 
-        const finalTitle = title.trim() || `קורס מ-${fileName || 'תוכן חדש'}`;
+        // Combine all parts into a single content block with source markers
+        const combinedContent = uploadedParts.map(part => 
+            `--- מקור: ${part.name} ---\n${part.content}\n`
+        ).join('\n');
+
+        const firstPartName = uploadedParts[0].name;
+        const finalTitle = title.trim() || `קורס: ${firstPartName}${uploadedParts.length > 1 ? ' ועוד' : ''}`;
         const finalSubject = subject.trim() || 'כללי';
 
         const course = await generateCompleteCourse({
             contentId,
             userId,
             title: finalTitle,
-            content: fileContent,
+            content: combinedContent,
             subject: finalSubject,
         });
 
@@ -276,8 +299,7 @@ export default function CreateCompleteCourse() {
             // Reset form
             setTitle('');
             setSubject('');
-            setFileContent('');
-            setFileName('');
+            setUploadedParts([]);
         } else if (error) {
             Alert.alert('שגיאה', error);
         }
@@ -382,43 +404,50 @@ export default function CreateCompleteCourse() {
                 <View style={styles.section}>
                     <Text style={styles.label}>תוכן הלימוד</Text>
 
-                    {fileContent ? (
-                        <View style={styles.uploadedFile}>
-                            <View style={styles.fileInfo}>
-                                <Ionicons name="document-text" size={24} color={Colors.purple} />
-                                <View style={styles.fileDetails}>
-                                    <Text style={styles.fileName}>{fileName}</Text>
-                                    <Text style={styles.fileSize}>{fileContent.length} תווים</Text>
+                    {uploadedParts.length > 0 && (
+                        <View style={styles.partsList}>
+                            {uploadedParts.map((part) => (
+                                <View key={part.id} style={styles.uploadedFile}>
+                                    <View style={styles.fileInfo}>
+                                        <Ionicons 
+                                            name={part.type === 'file' ? 'document-text' : 'text'} 
+                                            size={24} 
+                                            color={Colors.purple} 
+                                        />
+                                        <View style={styles.fileDetails}>
+                                            <Text style={styles.fileName}>{part.name}</Text>
+                                            <Text style={styles.fileSize}>{part.content.length} תווים</Text>
+                                        </View>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.removeButton}
+                                        onPress={() => {
+                                            setUploadedParts(prev => prev.filter(p => p.id !== part.id));
+                                        }}
+                                    >
+                                        <Ionicons name="close-circle" size={24} color={Colors.error} />
+                                    </TouchableOpacity>
                                 </View>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.removeButton}
-                                onPress={() => {
-                                    setFileContent('');
-                                    setFileName('');
-                                }}
-                            >
-                                <Ionicons name="close-circle" size={24} color={Colors.error} />
-                            </TouchableOpacity>
-                        </View>
-                    ) : (
-                        <View style={styles.uploadButtons}>
-                            <TouchableOpacity style={styles.uploadButton} onPress={handlePickFile}>
-                                <Ionicons name="cloud-upload" size={32} color={Colors.purple} />
-                                <Text style={styles.uploadButtonText}>בחר קובץ</Text>
-                                <Text style={styles.uploadButtonHint}>PDF, Word או TXT</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.uploadButton}
-                                onPress={() => setShowPasteModal(true)}
-                            >
-                                <Ionicons name="clipboard" size={32} color={Colors.purple} />
-                                <Text style={styles.uploadButtonText}>הדבק טקסט</Text>
-                                <Text style={styles.uploadButtonHint}>העתק והדבק</Text>
-                            </TouchableOpacity>
+                            ))}
                         </View>
                     )}
+
+                    <View style={[styles.uploadButtons, uploadedParts.length > 0 && { marginTop: 12 }]}>
+                        <TouchableOpacity style={styles.uploadButton} onPress={handlePickFile}>
+                            <Ionicons name="cloud-upload" size={32} color={Colors.purple} />
+                            <Text style={styles.uploadButtonText}>הוסף קובץ</Text>
+                            <Text style={styles.uploadButtonHint}>PDF, Word או TXT</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.uploadButton}
+                            onPress={() => setShowPasteModal(true)}
+                        >
+                            <Ionicons name="clipboard" size={32} color={Colors.purple} />
+                            <Text style={styles.uploadButtonText}>הדבק טקסט</Text>
+                            <Text style={styles.uploadButtonHint}>הוסף קטע קצר</Text>
+                        </TouchableOpacity>
+                    </View>
 
                     {uploadProgress && (
                         <View style={styles.uploadProgressContainer}>
@@ -429,7 +458,7 @@ export default function CreateCompleteCourse() {
                 </View>
 
                 {/* Create Course Button */}
-                {fileContent && !isGenerating && (
+                {uploadedParts.length > 0 && !isGenerating && (
                     <View style={styles.createSection}>
                         <TouchableOpacity
                             style={styles.createButton}
@@ -654,6 +683,9 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: Colors.gray,
         marginTop: 4,
+    },
+    partsList: {
+        gap: 12,
     },
     uploadedFile: {
         flexDirection: 'row',

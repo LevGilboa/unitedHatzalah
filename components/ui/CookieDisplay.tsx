@@ -20,60 +20,8 @@ export default function CookieDisplay({
     showLabel = true,
     onPress
 }: CookieDisplayProps) {
-    const { totalCookies } = useCookieStore();
-    const scaleAnim = useRef(new Animated.Value(1)).current;
-    const prevCookies = useRef(totalCookies);
-
-    useEffect(() => {
-        if (totalCookies !== prevCookies.current) {
-            // Bounce animation when cookies change
-            Animated.sequence([
-                Animated.timing(scaleAnim, {
-                    toValue: 1.3,
-                    duration: 150,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(scaleAnim, {
-                    toValue: 1,
-                    duration: 150,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-            prevCookies.current = totalCookies;
-        }
-    }, [totalCookies]);
-
-    const sizeStyles = {
-        small: { fontSize: 14, iconSize: 18 },
-        medium: { fontSize: 18, iconSize: 24 },
-        large: { fontSize: 24, iconSize: 32 },
-    };
-
-    const { fontSize, iconSize } = sizeStyles[size];
-
-    const content = (
-        <View style={[styles.container, size === 'large' && styles.containerLarge]}>
-            <Animated.View style={[styles.cookieIcon, { transform: [{ scale: scaleAnim }] }]}>
-                <Text style={{ fontSize: iconSize }}>🍪</Text>
-            </Animated.View>
-            <Text style={[styles.cookieCount, { fontSize }]}>
-                {totalCookies.toLocaleString()}
-            </Text>
-            {showLabel && size !== 'small' && (
-                <Text style={styles.cookieLabel}>עוגיות</Text>
-            )}
-        </View>
-    );
-
-    if (onPress) {
-        return (
-            <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
-                {content}
-            </TouchableOpacity>
-        );
-    }
-
-    return content;
+    // Hidden per user request about cookies score removal
+    return null;
 }
 
 const styles = StyleSheet.create({

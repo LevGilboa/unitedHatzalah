@@ -38,8 +38,13 @@ export default function MyContent() {
 
   // Delete modal state
   const [deleteModalVisible, setDeleteModalVisible] = React.useState(false);
-  const [itemToDelete, setItemToDelete] = React.useState<{id: string; title: string; type: 'content' | 'studyset'} | null>(null);
+  const [itemToDelete, setItemToDelete] = React.useState<{id: string; title: string; type: 'content' | 'studyset' | 'multiple'} | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+
+  // Selection state
+  const [isSelectionMode, setIsSelectionMode] = React.useState(false);
+  const [selectedContents, setSelectedContents] = React.useState<Set<string>>(new Set());
+  const [selectedStudySets, setSelectedStudySets] = React.useState<Set<string>>(new Set());
 
   // For guests, use localStudySets; for authenticated users, use studySets from Firebase
   const displayStudySets = isGuest ? localStudySets : studySets;
@@ -73,7 +78,17 @@ export default function MyContent() {
     
     setDeleting(true);
     try {
-      if (itemToDelete.type === 'content') {
+      if (itemToDelete.type === 'multiple') {
+        for (const id of Array.from(selectedContents)) {
+          await deleteContent(id);
+        }
+        for (const id of Array.from(selectedStudySets)) {
+          await deleteStudySet(id);
+        }
+        setIsSelectionMode(false);
+        setSelectedContents(new Set());
+        setSelectedStudySets(new Set());
+      } else if (itemToDelete.type === 'content') {
         await deleteContent(itemToDelete.id);
       } else {
         await deleteStudySet(itemToDelete.id);
@@ -120,9 +135,53 @@ export default function MyContent() {
     }
   };
 
-  const renderContentItem = (item: UploadedContent) => (
-    <View style={styles.contentCard}>
-      <View style={styles.cardHeader}>
+  const toggleContentSelection = (id: string) => {
+    const newSet = new Set(selectedContents);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedContents(newSet);
+  };
+
+  const toggleStudySetSelection = (id: string) => {
+    const newSet = new Set(selectedStudySets);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedStudySets(newSet);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedContents.size === 0 && selectedStudySets.size === 0) return;
+    setItemToDelete({
+      id: 'multiple',
+      title: `${selectedContents.size + selectedStudySets.size} פריטים`,
+      type: 'multiple'
+    });
+    setDeleteModalVisible(true);
+  };
+
+  const renderContentItem = (item: UploadedContent) => {
+    const isSelected = selectedContents.has(item.id);
+    return (
+    <TouchableOpacity
+      activeOpacity={isSelectionMode ? 0.7 : 1}
+      onPress={() => isSelectionMode ? toggleContentSelection(item.id) : null}
+      onLongPress={() => {
+        if (!isSelectionMode) {
+          setIsSelectionMode(true);
+          toggleContentSelection(item.id);
+        }
+      }}
+      style={[
+        styles.contentCard,
+        isSelectionMode && isSelected && styles.selectedCard
+      ]}
+    >
+      {isSelectionMode && (
+        <View style={styles.checkboxContainer}>
+          <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? Colors.accent : Colors.gray} />
+        </View>
+      )}
+      <View style={[styles.cardHeader, isSelectionMode && { paddingRight: 36 }]}>
         <View style={styles.cardTitle}>
           <Text style={styles.title} numberOfLines={2}>
             {item.title}
@@ -157,36 +216,60 @@ export default function MyContent() {
       </View>
 
       <View style={styles.cardActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => {
-            // Find related study set
-            const relatedSet = displayStudySets.find((s) => s.contentId === item.id);
-            if (relatedSet) {
-              router.push(`/study-set?setId=${relatedSet.id}`);
-            } else {
-              Alert.alert('הודעה', 'עדיין לא נוצרו תרגילים לקובץ זה');
-            }
-          }}
-        >
-          <Ionicons name="play-circle" size={18} color={Colors.accent} />
-          <Text style={styles.actionButtonText}>לימוד</Text>
-        </TouchableOpacity>
+        {!isSelectionMode && (
+          <>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                // Find related study set
+                const relatedSet = displayStudySets?.find((s) => s.contentId === item.id);
+                if (relatedSet) {
+                  router.push(`/study-set?setId=${relatedSet.id}`);
+                } else {
+                  Alert.alert('הודעה', 'עדיין לא נוצרו תרגילים לקובץ זה');
+                }
+              }}
+            >
+              <Ionicons name="play-circle" size={18} color={Colors.accent} />
+              <Text style={styles.actionButtonText}>לימוד</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => handleDeleteContent(item.id, item.title)}
-        >
-          <Ionicons name="trash" size={18} color="#f44336" />
-          <Text style={[styles.actionButtonText, styles.deleteButtonText]}>מחק</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={() => handleDeleteContent(item.id, item.title)}
+            >
+              <Ionicons name="trash" size={18} color="#f44336" />
+              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>מחק</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
-    </View>
-  );
+    </TouchableOpacity>
+  )};
 
-  const renderStudySetItem = (item: StudySet) => (
-    <View style={styles.contentCard}>
-      <View style={styles.cardHeader}>
+  const renderStudySetItem = (item: StudySet) => {
+    const isSelected = selectedStudySets.has(item.id);
+    return (
+    <TouchableOpacity
+      activeOpacity={isSelectionMode ? 0.7 : 1}
+      onPress={() => isSelectionMode ? toggleStudySetSelection(item.id) : null}
+      onLongPress={() => {
+        if (!isSelectionMode) {
+          setIsSelectionMode(true);
+          toggleStudySetSelection(item.id);
+        }
+      }}
+      style={[
+        styles.contentCard,
+        isSelectionMode && isSelected && styles.selectedCard
+      ]}
+    >
+      {isSelectionMode && (
+        <View style={styles.checkboxContainer}>
+          <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? Colors.accent : Colors.gray} />
+        </View>
+      )}
+      <View style={[styles.cardHeader, isSelectionMode && { paddingRight: 36 }]}>
         <View style={styles.cardTitle}>
           <Text style={styles.title} numberOfLines={2}>
             {item.title}
@@ -226,24 +309,28 @@ export default function MyContent() {
       </View>
 
       <View style={styles.cardActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => handleDeleteStudySet(item.id, item.title)}
-        >
-          <Ionicons name="trash" size={18} color="#f44336" />
-          <Text style={[styles.actionButtonText, styles.deleteButtonText]}>מחק</Text>
-        </TouchableOpacity>
+        {!isSelectionMode && (
+          <>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={() => handleDeleteStudySet(item.id, item.title)}
+            >
+              <Ionicons name="trash" size={18} color="#f44336" />
+              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>מחק</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push(`/study-set?setId=${item.id}`)}
-        >
-          <Ionicons name="play-circle" size={18} color={Colors.accent} />
-          <Text style={styles.actionButtonText}>ללמוד</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push(`/study-set?setId=${item.id}`)}
+            >
+              <Ionicons name="play-circle" size={18} color={Colors.accent} />
+              <Text style={styles.actionButtonText}>ללמוד</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
-    </View>
-  );
+    </TouchableOpacity>
+  )};
 
   if (loading) {
     return (
@@ -261,9 +348,45 @@ export default function MyContent() {
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>הקבצים שלי</Text>
-        <Text style={styles.headerSubtitle}>צפה בכל הקבצים והתרגילים שלך</Text>
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.headerTitle}>הקבצים שלי</Text>
+          <Text style={styles.headerSubtitle}>צפה בכל הקבצים והתרגילים שלך</Text>
+        </View>
+        {(hasContent || hasStudySets) && (
+          <TouchableOpacity 
+            style={styles.selectModeButton}
+            onPress={() => {
+              if (isSelectionMode) {
+                setIsSelectionMode(false);
+                setSelectedContents(new Set());
+                setSelectedStudySets(new Set());
+              } else {
+                setIsSelectionMode(true);
+              }
+            }}
+          >
+            <Text style={styles.selectModeText}>
+              {isSelectionMode ? 'ביטול בחירה' : 'בחירה מרובה'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Selection Action Bar */}
+      {isSelectionMode && (selectedContents.size > 0 || selectedStudySets.size > 0) && (
+        <View style={styles.selectionBar}>
+          <Text style={styles.selectionCount}>
+            נבחרו {selectedContents.size + selectedStudySets.size} פריטים
+          </Text>
+          <TouchableOpacity 
+            style={styles.bulkDeleteButton}
+            onPress={handleDeleteSelected}
+          >
+            <Ionicons name="trash" size={18} color="white" />
+            <Text style={styles.bulkDeleteText}>מחק נבחרים</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Uploaded Contents Section */}
       {hasContent && (
@@ -380,6 +503,52 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     borderBottomWidth: 1,
     borderBottomColor: Colors.lightGray,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  selectModeButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 16,
+  },
+  selectModeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.accent,
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#FFF3E0',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  selectionCount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.accent,
+  },
+  bulkDeleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f44336',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 6,
+  },
+  bulkDeleteText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
   },
   headerTitle: {
     fontSize: 24,
@@ -413,6 +582,17 @@ const styles = StyleSheet.create({
     borderColor: Colors.lightGray,
     padding: 16,
     marginBottom: 12,
+    position: 'relative',
+  },
+  selectedCard: {
+    borderColor: Colors.accent,
+    backgroundColor: '#FAF9Fe', // faint highlight
+  },
+  checkboxContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
   },
   cardHeader: {
     flexDirection: 'row',

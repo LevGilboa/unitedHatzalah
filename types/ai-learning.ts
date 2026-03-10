@@ -259,7 +259,7 @@ export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
     description: 'שאלות מאתגרות לבדיקת הבנה עמוקה',
     exerciseCount: 10,
     difficulties: ['medium', 'hard'],
-    exerciseTypes: ['multiple-choice', 'fill-blank', 'matching', 'ordering'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false'],
     requiredScore: 75,
   },
   {
@@ -268,7 +268,7 @@ export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
     description: 'חזרה על כל החומר עם דגש על נקודות חלשות',
     exerciseCount: 10,
     difficulties: ['easy', 'medium', 'hard'],
-    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false', 'matching'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'true-false'],
     requiredScore: 80,
   },
   {
@@ -277,7 +277,7 @@ export const COURSE_PHASES_CONFIG: PhaseConfig[] = [
     description: 'מבחן מקיף על כל החומר - הוכח שאתה שולט!',
     exerciseCount: 15,
     difficulties: ['medium', 'hard', 'expert'],
-    exerciseTypes: ['multiple-choice', 'fill-blank', 'matching', 'ordering', 'short-answer'],
+    exerciseTypes: ['multiple-choice', 'fill-blank', 'short-answer', 'true-false'],
     requiredScore: 85,
   },
 ];

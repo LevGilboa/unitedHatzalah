@@ -76,8 +76,13 @@ export default {
             },
             // ⚠️  AI API keys are NOT here — they live only in Vercel Environment Variables
             // and are accessed by /api/ai-chat.js (Vercel Serverless Function).
-            // Only non-secret config goes here:
-            EXPO_PUBLIC_AI_PROVIDER: process.env.EXPO_PUBLIC_AI_PROVIDER
+            // Only non-secret config mapping:
+            EXPO_PUBLIC_AI_PROVIDER: process.env.AI_PROVIDER || process.env.EXPO_PUBLIC_AI_PROVIDER,
+            EXPO_PUBLIC_GROQ_MODEL: process.env.GROQ_MODEL || process.env.EXPO_PUBLIC_GROQ_MODEL,
+            EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.HUGGINGFACE_MODEL || process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
+            EXPO_PUBLIC_OLLAMA_ENDPOINT: process.env.OLLAMA_ENDPOINT || process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT,
+            EXPO_PUBLIC_OLLAMA_MODEL: process.env.OLLAMA_MODEL || process.env.EXPO_PUBLIC_OLLAMA_MODEL,
+            EXPO_PUBLIC_PROXY_URL: process.env.PROXY_URL || process.env.EXPO_PUBLIC_PROXY_URL || "https://united-hatzalah.vercel.app",
         }
     }
 };

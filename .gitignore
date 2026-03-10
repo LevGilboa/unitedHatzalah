@@ -1,46 +1,22 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# Environment variables (NEVER commit API keys!)
+# Environment variables
+# Never commit this file!
 .env
-.env.local
-.env.*.local
+.env.*
+!/.env.example
 
-# dependencies
-node_modules/
+# Dependencies
+/node_modules
 
-# Expo
+# Expo & build artifacts
 .expo/
 web-build/
 dist/
-expo-env.d.ts
+docs/
 
-# Native
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
+# Misc
 .DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-app-example
-\.env
-\.env
-.vercel

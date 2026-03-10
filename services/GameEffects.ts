@@ -10,17 +10,18 @@ import { Platform, Vibration } from 'react-native';
 // Sound cache to avoid reloading
 const soundCache: { [key: string]: Audio.Sound | null } = {};
 
-// Sound URLs (using free sound effects)
-const SOUND_URLS = {
-    correct: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3', // Success chime
-    incorrect: 'https://assets.mixkit.co/active_storage/sfx/2954/2954-preview.mp3', // Short error beep
-    click: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3', // Button click
-    victory: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3', // Victory fanfare
-    levelUp: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3', // Level up
-    heartLost: 'https://assets.mixkit.co/active_storage/sfx/2954/2954-preview.mp3', // Short error beep (same as incorrect)
+// Sound files - loaded locally for instant playback
+const SOUND_FILES = {
+    correct: require('@/assets/sounds/new-correct-sound.m4a'), // This is your new sound
+    incorrect: require('@/assets/sounds/incorrect-answer.m4a'),
+    //click: require('@/assets/sounds/select-option.m4a'),
+    //victory: require('@/assets/sounds/victory.mp3'),
+    // Make sure you have a 'level-up.mp3' file in your assets/sounds folder
+    //levelUp: require('@/assets/sounds/level-up.mp3'),
+    //heartLost: require('@/assets/sounds/incorrect-answer.m4a'), // Reuses incorrect sound
 };
 
-export type SoundType = keyof typeof SOUND_URLS;
+export type SoundType = keyof typeof SOUND_FILES | string;
 
 class GameEffectsService {
     private initialized = false;
@@ -37,10 +38,26 @@ class GameEffectsService {
                 staysActiveInBackground: false,
                 shouldDuckAndroid: true,
             });
+
+            // Pre-load all sounds into the cache for instant playback
+            console.log('🎵 Pre-loading game sounds...');
+            for (const key of Object.keys(SOUND_FILES)) {
+                const type = key as SoundType;
+                if (!soundCache[type]) {
+                    try {
+                        const { sound } = await Audio.Sound.createAsync(SOUND_FILES[type]);
+                        soundCache[type] = sound;
+                    } catch (e) {
+                        console.log(`Sound '${type}' failed to load or is missing. Skipping.`);
+                        soundCache[type] = null;
+                    }
+                }
+            }
+
             this.initialized = true;
             console.log('🎮 GameEffects initialized');
         } catch (error) {
-            console.error('Failed to initialize audio:', error);
+            console.error('Failed to initialize audio system:', error);
         }
     }
 
@@ -51,34 +68,16 @@ class GameEffectsService {
         if (!this.soundsEnabled) return;
 
         try {
+            // Ensure sounds are loaded
             await this.initialize();
 
-            // Check if sound is cached
-            if (soundCache[type]) {
-                const status = await soundCache[type]?.getStatusAsync();
-                if (status?.isLoaded) {
-                    await soundCache[type]?.setPositionAsync(0);
-                    await soundCache[type]?.playAsync();
-                    return;
-                }
+            const soundObject = soundCache[type];
+            if (soundObject) {
+                await soundObject.setVolumeAsync(volume);
+                await soundObject.replayAsync(); // Replays from the beginning
             }
-
-            // Load and play new sound
-            const { sound } = await Audio.Sound.createAsync(
-                { uri: SOUND_URLS[type] },
-                { volume, shouldPlay: true }
-            );
-
-            soundCache[type] = sound;
-
-            // Cleanup after playing
-            sound.setOnPlaybackStatusUpdate((status) => {
-                if (status.isLoaded && status.didJustFinish) {
-                    // Keep in cache for reuse
-                }
-            });
         } catch (error) {
-            console.log('Sound playback failed (this is normal on web):', error);
+            // Ignore playback errors
         }
     }
 

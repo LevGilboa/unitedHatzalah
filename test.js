@@ -1,0 +1,1 @@
+const str = '{ "topic": "מבנה הספר" }'; console.log("og:", str); const cleaned = str.replace(/([{,]\s*)(\w+):/gi, "$1\"$2\":"); console.log("cleaned:", cleaned); try { JSON.parse(cleaned) } catch(e) { console.error(e) }

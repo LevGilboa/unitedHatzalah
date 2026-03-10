@@ -42,20 +42,8 @@ export const useCookieStore = create<CookieStore>()(
 
             // Add cookies (earn)
             addCookies: (amount: number, reason: string) => {
-                const transaction: CookieTransaction = {
-                    id: `txn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    amount,
-                    reason,
-                    timestamp: Date.now(),
-                    type: 'earn',
-                };
-
-                set(state => ({
-                    totalCookies: state.totalCookies + amount,
-                    transactions: [transaction, ...state.transactions].slice(0, 100), // Keep last 100
-                }));
-
-                console.log(`🍪 +${amount} cookies: ${reason}`);
+                // Disabled per user request
+                return;
             },
 
             // Spend cookies

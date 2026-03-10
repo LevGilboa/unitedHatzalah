@@ -10,6 +10,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1004.0",
+    "@aws-sdk/client-sts": "^3.1005.0",
+    "dotenv": "^17.3.1",
     "express": "^4.21.2",
     "firebase-admin": "^13.0.2",
     "nodemon": "^3.1.9"

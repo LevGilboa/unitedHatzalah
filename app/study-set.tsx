@@ -65,7 +65,15 @@ export default function StudySet() {
     console.log('study-set: generatedExercises.length =', generatedExercises.length, 'isGenerating =', isGenerating);
 
     const generateNewExercises = async () => {
-      // If no originalContent, use stored exercises directly
+      // If we already have exercises in the set, use them instead of generating new ones
+      // This prevents redundant AI calls when navigating from the upload page
+      if (currentSet?.exercises && currentSet.exercises.length > 0) {
+        console.log('Using already existing exercises in the set:', currentSet.exercises.length);
+        setGeneratedExercises(currentSet.exercises);
+        return;
+      }
+
+      // If no originalContent, use stored exercises directly (already handled above but kept for safety)
       if (!currentSet?.originalContent) {
         console.log('No originalContent, using stored exercises:', currentSet?.exercises?.length || 0);
         if (currentSet?.exercises && currentSet.exercises.length > 0) {
@@ -275,7 +283,7 @@ export default function StudySet() {
   // Function to regenerate exercises from content
   const regenerateExercises = async () => {
     if (!currentSet?.originalContent) {
-      window.alert('אין תוכן מקורי לקריאה מחדש');
+      Alert.alert('שגיאה', 'אין תוכן מקורי לקריאה מחדש');
       return;
     }
 
@@ -325,19 +333,19 @@ export default function StudySet() {
       if (response.exercises && response.exercises.length > 0) {
         console.log('New exercises generated:', response.exercises.length);
         setGeneratedExercises(response.exercises);
-        window.alert('✅ השאלות נוצרו מחדש!');
+        Alert.alert('הצלחה', '✅ השאלות נוצרו מחדש!');
       } else {
         // Restore previous exercises
         setGeneratedExercises(previousExercises);
         setGenerationError('לא הצלחנו ליצור שאלות חדשות');
-        window.alert('לא הצלחנו ליצור שאלות חדשות. ממשיכים עם השאלות הקיימות.');
+        Alert.alert('שגיאה', 'לא הצלחנו ליצור שאלות חדשות. ממשיכים עם השאלות הקיימות.');
       }
     } catch (error) {
       console.error('Error regenerating exercises:', error);
       // Restore previous exercises
       setGeneratedExercises(previousExercises);
       setGenerationError('שגיאה בקריאה מחדש של הקובץ');
-      window.alert('שגיאה בקריאה מחדש. ממשיכים עם השאלות הקיימות.');
+      Alert.alert('שגיאה', 'שגיאה בקריאה מחדש. ממשיכים עם השאלות הקיימות.');
     } finally {
       setIsGenerating(false);
     }
@@ -370,21 +378,28 @@ export default function StudySet() {
 
     // After 3 reports, offer to re-read the file
     if (newCount >= 3) {
-      const shouldRegenerate = window.confirm(
-        'דיווחת 3 פעמים על קריאה שגויה.\nהאם לנסות לקרוא את הקובץ מחדש וליצור שאלות חדשות?'
+      Alert.alert(
+        'דיווחת 3 פעמים על קריאה שגויה',
+        'האם לנסות לקרוא את הקובץ מחדש וליצור שאלות חדשות?',
+        [
+          {
+            text: 'לא, המשך',
+            style: 'cancel',
+            onPress: () => {
+              if (currentExerciseIndex < exercises.length - 1) {
+                setCurrentExerciseIndex(currentExerciseIndex + 1);
+                setShowExplanation(false);
+              } else {
+                setShowFinalScore(true);
+              }
+            }
+          },
+          {
+            text: 'כן, צור מחדש',
+            onPress: () => regenerateExercises()
+          }
+        ]
       );
-
-      if (shouldRegenerate) {
-        regenerateExercises();
-      } else {
-        // Move to next question
-        if (currentExerciseIndex < exercises.length - 1) {
-          setCurrentExerciseIndex(currentExerciseIndex + 1);
-          setShowExplanation(false);
-        } else {
-          setShowFinalScore(true);
-        }
-      }
     } else {
       // Just skip to next question silently (like skip behavior)
       if (currentExerciseIndex < exercises.length - 1) {
@@ -540,7 +555,7 @@ export default function StudySet() {
       )}
 
       {/* Generation Error Notice */}
-      {generationError && (
+      {!!generationError && (
         <View style={styles.errorNotice}>
           <Ionicons name="information-circle" size={16} color="#ff9800" />
           <Text style={styles.errorNoticeText}>{generationError}</Text>

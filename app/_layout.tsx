@@ -30,27 +30,19 @@ export default function RootLayout() {
     const rawProvider = Constants.expoConfig?.extra?.EXPO_PUBLIC_AI_PROVIDER ?? (process.env as any).EXPO_PUBLIC_AI_PROVIDER ?? '';
     // Trim and remove any surrounding quotes that might have been accidentally added
     const aiProvider = rawProvider.trim().replace(/^["']|["']$/g, '').toLowerCase();
-    
-    const geminiApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ?? (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-    const groqApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY ?? (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ?? '';
-    const groqModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_MODEL ?? (process.env as any).EXPO_PUBLIC_GROQ_MODEL ?? 'llama-3.1-70b-versatile';
-    const ollamaEndpoint = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_ENDPOINT ?? (process.env as any).EXPO_PUBLIC_OLLAMA_ENDPOINT ?? 'http://localhost:11434';
-    const ollamaModel = Constants.expoConfig?.extra?.EXPO_PUBLIC_OLLAMA_MODEL ?? (process.env as any).EXPO_PUBLIC_OLLAMA_MODEL ?? 'llama3.2';
-    const hfApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_API_KEY ?? '';
+
+    const geminiApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ?? 
+                        (process.env as any).GEMINI_API_KEY ?? 
+                        (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 
     // Debug: Log what we got from environment
     console.log('[AI Config Debug] Raw Provider:', `"${rawProvider}"`);
     console.log('[AI Config Debug] Clean Provider:', `"${aiProvider}"`);
     console.log('[AI Config Debug] Gemini Key:', geminiApiKey ? `${geminiApiKey.substring(0, 10)}...` : 'NOT SET');
-    console.log('[AI Config Debug] Groq Key:', groqApiKey ? `${groqApiKey.substring(0, 10)}...` : 'NOT SET');
 
     // Make sure fallback keys are available in process.env for AIContentProcessor
     if (geminiApiKey) {
       (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY = geminiApiKey;
-    }
-    if (groqApiKey) {
-      (process.env as any).EXPO_PUBLIC_GROQ_API_KEY = groqApiKey;
-      (process.env as any).EXPO_PUBLIC_GROQ_MODEL = groqModel;
     }
 
     // Initialize AI processor based on provider
@@ -59,29 +51,10 @@ export default function RootLayout() {
       console.log('[AI] initializeAIProcessor -> provider: bedrock (via Vercel Proxy)');
       initializeAIProcessor({
         provider: 'bedrock',
-        // Fallbacks for when offline or not web
-        fallbackOpenAIKey: groqApiKey,
-      });
-    } else if (aiProvider === 'ollama') {
-      // Use Ollama for local AI (no API key needed!)
-      console.log('[AI] initializeAIProcessor -> provider: ollama (local LLM)');
-      initializeAIProcessor({
-        provider: 'ollama',
-        ollamaEndpoint: ollamaEndpoint,
-        model: ollamaModel,
-        // Fallback to Groq if Ollama fails
-        fallbackOpenAIKey: groqApiKey,
-      });
-    } else if (aiProvider === 'huggingface') {
-      console.log('[AI] initializeAIProcessor -> provider: huggingface (with Gemini & Groq fallback)');
-      initializeAIProcessor({
-        provider: 'huggingface',
-        apiKey: hfApiKey,
-        model: Constants.expoConfig?.extra?.EXPO_PUBLIC_HUGGINGFACE_MODEL ?? (process.env as any).EXPO_PUBLIC_HUGGINGFACE_MODEL ?? 'meta-llama/Meta-Llama-3-8B-Instruct',
       });
     } else if (aiProvider === 'gemini' && geminiApiKey) {
       // Use Gemini API for AI-powered exercise generation
-      console.log('[AI] initializeAIProcessor -> provider: gemini (with Groq fallback)');
+      console.log('[AI] initializeAIProcessor -> provider: gemini');
       initializeAIProcessor({
         provider: 'gemini',
         apiKey: geminiApiKey,
@@ -89,19 +62,11 @@ export default function RootLayout() {
       });
     } else if (geminiApiKey) {
       // Default to Gemini if key is provided (even without explicit provider)
-      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected, with Groq fallback)');
+      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected)');
       initializeAIProcessor({
         provider: 'gemini',
         apiKey: geminiApiKey,
         model: 'gemini-2.0-flash',
-      });
-    } else if (groqApiKey) {
-      // Use Groq API for AI-powered exercise generation (free!)
-      console.log('[AI] initializeAIProcessor -> provider: groq');
-      initializeAIProcessor({
-        provider: 'groq',
-        apiKey: groqApiKey,
-        model: groqModel,
       });
     } else {
       // Fallback to local generation if no API key

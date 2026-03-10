@@ -7,6 +7,7 @@ import {
   QuestionFeedback,
 } from '@/types/ai-learning';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 /**
  * Service for integrating with AI APIs to generate exercises from uploaded content
@@ -14,19 +15,10 @@ import { Platform } from 'react-native';
  */
 
 interface AIConfig {
-  provider: 'openai' | 'claude' | 'gemini' | 'groq' | 'brightdata' | 'local' | 'ollama' | 'huggingface' | 'bedrock';
+  provider: 'bedrock' | 'gemini' | 'local';
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
-  zone?: string; // Bright Data Zone name (default: unblocker)
-  ollamaEndpoint?: string; // Ollama API endpoint (default: http://localhost:11434)
-  // AWS Bedrock configuration
-  awsAccessKeyId?: string;
-  awsSecretAccessKey?: string;
-  awsRegion?: string;
-  // Fallback configuration
-  fallbackOpenAIKey?: string;
-  fallbackOpenAIModel?: string;
 }
 
 
@@ -35,6 +27,22 @@ class AIContentProcessor {
 
   constructor(config: AIConfig) {
     this.config = config;
+  }
+
+  /**
+   * Helper to get the correct proxy endpoint (local vs production)
+   */
+  private getProxyUrl(path: string): string {
+    const isLocal = Platform.OS === 'web' && typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (isLocal) {
+      return `http://localhost:3000${path}`;
+    }
+    
+    // In production (GitHub Pages), we must use the absolute URL to Vercel
+    const proxyUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_PROXY_URL || '';
+    return `${proxyUrl}${path}`;
   }
 
   /**
@@ -60,7 +68,7 @@ ${truncatedContent}
       // Try with AI if available
       // Disabled by user request to force local extraction
       // Disabled by user request to force local extraction -> Removed false && to enable
-      if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'ollama')) {
+      if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'bedrock')) {
         const result = await this.callAIForTitleSubject(prompt);
         if (result) {
           return {
@@ -79,148 +87,47 @@ ${truncatedContent}
 
   private async callAIForTitleSubject(prompt: string): Promise<{ title: string; subject: string } | null> {
     try {
-      let response: Response | null = null;
-      let data: any = null;
+      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
+        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 
-      if (this.config.provider === 'groq' && this.config.apiKey) {
-        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: this.config.model || 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.3,
-            max_tokens: 200,
-          }),
-        });
-      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`, {
+      if (this.config.provider === 'gemini' && this.config.apiKey && !isProduction) {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+            }),
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
+          }
+        }
+      } else if (isProduction || this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
+        const response = await fetch(this.getProxyUrl('/api/ai-chat'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+            question: prompt,
+            systemPrompt: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.',
+            history: [],
           }),
         });
-      } else if (this.config.provider === 'ollama') {
-        const endpoint = this.config.ollamaEndpoint || 'http://localhost:11434';
-        const model = this.config.model || 'llama3';
-        const baseUrl = endpoint.replace(/\/$/, '');
-        const isOpenAICompatible = baseUrl.includes('ngrok') || baseUrl.includes('https://');
-
-        if (isOpenAICompatible) {
-          // OpenAI-compatible format
-          response = await fetch(`${baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'ngrok-skip-browser-warning': '69420'
-            },
-            body: JSON.stringify({
-              model: model,
-              messages: [
-                { role: 'system', content: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.' },
-                { role: 'user', content: prompt }
-              ],
-              temperature: 0.3,
-              max_tokens: 200
-            }),
-          });
-        } else {
-          // Native Ollama format
-          response = await fetch(`${baseUrl}/api/generate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'ngrok-skip-browser-warning': '69420'
-            },
-            body: JSON.stringify({
-              model: model,
-              prompt: prompt,
-              stream: false,
-              options: { temperature: 0.3, num_predict: 200 }
-            }),
-          });
-        }
-      } else if (this.config.provider === 'huggingface' && this.config.apiKey) {
-        const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
-
-        if (Platform.OS === 'web') {
-          response = await fetch('/api/huggingface', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: model,
-              inputs: prompt,
-              parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false },
-              apiKey: this.config.apiKey
-            }),
-          });
-        } else {
-          response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${this.config.apiKey}`,
-            },
-            body: JSON.stringify({
-              inputs: prompt,
-              parameters: { max_new_tokens: 200, temperature: 0.3, return_full_text: false }
-            }),
-          });
-        }
-      } else if (this.config.provider === 'bedrock') {
-        // AWS Bedrock - use the server-side API route to handle AWS SDK calls
-        if (Platform.OS === 'web') {
-          response = await fetch('/api/ai-chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              question: prompt,
-              systemPrompt: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.',
-              history: []
-            }),
-          });
-          
-          if (response.ok) {
-            const result = await response.json();
-            const text = result.answer || '';
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              if (parsed.title && parsed.subject) {
-                return { title: parsed.title, subject: parsed.subject };
-              }
-            }
-          }
-          return null;
-        }
-      }
-
-      if (response && response.ok) {
-        data = await response.json();
-        let text = '';
-
-        if (this.config.provider === 'groq') {
-          text = data.choices?.[0]?.message?.content || '';
-        } else if (this.config.provider === 'gemini') {
-          text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        } else if (this.config.provider === 'ollama') {
-          // Support both native Ollama format and OpenAI-compatible format
-          text = data.choices?.[0]?.message?.content || data.response || '';
-        } else if (this.config.provider === 'huggingface') {
-          // Hugging Face returns an array: [{ generated_text: "..." }]
-          text = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
-        }
-
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.title && parsed.subject) {
-            return { title: parsed.title, subject: parsed.subject };
+        if (response.ok) {
+          const result = await response.json();
+          const text = result.answer || '';
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
           }
         }
       }
@@ -260,62 +167,6 @@ ${truncatedContent}
     }
 
     return { title, subject: detectedSubject };
-  }
-
-  /**
-   * Fetch content from a URL using Bright Data Web Unlocker
-   */
-  async fetchContentFromUrl(url: string): Promise<string> {
-    try {
-      console.log(`[BrightData] Fetching content from ${url}...`);
-
-      const brightDataToken = this.config.apiKey || (process.env as any).EXPO_PUBLIC_BRIGHT_DATA_TOKEN;
-
-      if (!brightDataToken) {
-        throw new Error('חסר מפתח API של Bright Data (EXPO_PUBLIC_BRIGHT_DATA_TOKEN)');
-      }
-
-      // Use Bright Data Web Unlocker API
-      // Zone 'unblocker' or 'web_unlocker' is required
-      const zone = this.config.zone || 'unblocker';
-
-      const response = await fetch('https://api.brightdata.com/request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${brightDataToken}`,
-        },
-        body: JSON.stringify({
-          zone: zone,
-          url: url,
-          format: 'raw', // Get raw HTML/text
-          method: 'GET',
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Bright Data error:', response.status, errorText);
-        throw new Error(`שגיאה בטעינת הקישור: ${response.status}`);
-      }
-
-      const html = await response.text();
-
-      // Simple HTML to text conversion (remove tags)
-      // For better results, a library like 'cheerio' or 'jsdom' would be used on backend,
-      // but here we do simple regex cleanup
-      let text = html
-        .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gm, "") // Remove scripts
-        .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gm, "")   // Remove styles
-        .replace(/<[^>]+>/g, " ")                              // Remove HTML tags
-        .replace(/\s+/g, " ")                                  // Normalize whitespace
-        .trim();
-
-      return text;
-    } catch (error) {
-      console.error('Error fetching URL content:', error);
-      throw error;
-    }
   }
 
   /**
@@ -484,7 +335,7 @@ ${truncatedContent}
     badExamples?: QuestionFeedback[]
   ): Promise<GeneratedExercise[]> {
     // Use real AI API if configured
-    if (this.config.provider !== 'local' && (this.config.apiKey || this.config.provider === 'ollama')) {
+    if (this.config.provider !== 'local') {
       return await this.generateExercisesWithAI(content, analysis, request, goodExamples, badExamples);
     }
 
@@ -680,6 +531,7 @@ ${previousQuestionsSection}
 1. **התמקד בתוכן הנוכחי**: צור שאלות *רק* על סמך הטקסט שמופיע בחלק זה. אל תמציא מידע.
 2. **מניעת חזרות**: וודא שכל שאלה בודקת פרט מידע שונה.
 3. **גיוון**: השתמש בסוגי שאלות שונים.
+4. **פורמט פלט**: החזר אך ורק JSON תקני. הימנע משימוש במירכאות כפולות בתוך מחרוזות טקסט (השתמש בגרש בודד אם צריך).
 
 צור ${exercisesForChunk} תרגילים איכותיים ומקוריים בעברית.
 
@@ -703,35 +555,30 @@ ${previousQuestionsSection}
 \`\`\`
 
 חשוב מאוד:
-- correctAnswer חייב להיות 0 או 1 עבור true-false
-- options חייב להיות ["נכון", "לא נכון"] עבור true-false
+- שדה type חייב להיות אחד מאלה בלבד: "multiple-choice", "true-false", "fill-blank", "short-answer".
+- correctAnswer חייב להיות 0 או 1 עבור true-false.
+- options חייב להיות ["נכון", "לא נכון"] עבור true-false.
+- הקפד על JSON תקין לחלוטין.
 `;
 
       // Call the configured provider
       let chunkResult: GeneratedExercise[] | null = null;
 
-      // Try Hugging Face first (primary provider)
-      if (this.config.provider === 'huggingface' && this.config.apiKey) {
-        console.log('🟢 Trying Hugging Face API (primary)...');
-        chunkResult = await this.callHuggingFaceAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'bedrock') {
-        console.log('🟢 Trying Bedrock API (primary)...');
-        chunkResult = await this.callBedrockAPI(prompt, request.contentId, analysis);
+      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
+        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+
+      // Primary: Proxy (Bedrock OR Gemini via Vercel)
+      if (isProduction || this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
+        console.log(`🟢 Trying AI Proxy (primary${isProduction ? ' - Production Mode' : ''} for ${this.config.provider})...`);
+        chunkResult = await this.callProxyAPI(prompt, request.contentId, analysis);
       } else if (this.config.provider === 'gemini' && this.config.apiKey) {
-        console.log('🟢 Trying Gemini API (primary)...');
+        console.log('🟢 Trying Gemini API (primary - Development Mode)...');
         chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'groq' && this.config.apiKey) {
-        console.log('🟢 Trying Groq API (primary)...');
-        chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'ollama') {
-        console.log('🟢 Trying Ollama API (primary)...');
-        chunkResult = await this.callOllamaAPI(prompt, request.contentId, analysis);
       }
 
-      // Fallback #1: Try Gemini if primary provider failed and Gemini key is available
+      // Fallback: Gemini if Bedrock failed
       if (!chunkResult && this.config.provider !== 'gemini') {
-        let geminiKey = (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY;
-        // Also try Constants.expoConfig.extra (how Expo provides env vars at runtime)
+        let geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
         if (!geminiKey) {
           try {
             const Constants = require('expo-constants').default;
@@ -739,7 +586,7 @@ ${previousQuestionsSection}
           } catch (e) { /* Constants not available */ }
         }
         if (geminiKey) {
-          console.log('🟡 Fallback #1: Trying Gemini API...');
+          console.log('🟡 Fallback: Trying Gemini API...');
           const savedApiKey = this.config.apiKey;
           const savedModel = this.config.model;
           this.config.apiKey = geminiKey;
@@ -747,40 +594,8 @@ ${previousQuestionsSection}
           chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
           this.config.apiKey = savedApiKey;
           this.config.model = savedModel;
-        }
-      }
-
-      // Fallback #2: Try Groq if Gemini also failed
-      if (!chunkResult && this.config.provider !== 'groq') {
-        let groqKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY;
-        if (!groqKey) {
-          try {
-            const Constants = require('expo-constants').default;
-            groqKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GROQ_API_KEY;
-          } catch (e) { /* Constants not available */ }
-        }
-        if (groqKey) {
-          console.log('🟡 Fallback #2: Trying Groq API...');
-          const savedApiKey = this.config.apiKey;
-          const savedProvider = this.config.provider;
-          const savedModel = this.config.model;
-          this.config.apiKey = groqKey;
-          this.config.provider = 'groq';
-          this.config.model = (process.env as any).EXPO_PUBLIC_GROQ_MODEL || 'llama-3.1-70b-versatile';
-          chunkResult = await this.callGroqAPI(prompt, request.contentId, analysis);
-          this.config.apiKey = savedApiKey;
-          this.config.provider = savedProvider;
-          this.config.model = savedModel;
-        }
-      }
-
-      // Fallback #3: Try OpenAI if configured (last resort)
-      if (!chunkResult && (this.config.provider === 'openai' || this.config.fallbackOpenAIKey)) {
-        const openaiKey = this.config.provider === 'openai' ? this.config.apiKey : this.config.fallbackOpenAIKey;
-        const openaiModel = this.config.provider === 'openai' ? this.config.model : this.config.fallbackOpenAIModel;
-        if (openaiKey) {
-          console.log('🟡 Fallback #3: Trying OpenAI API...');
-          chunkResult = await this.callOpenAIAPI(prompt, request.contentId, analysis, openaiKey, openaiModel);
+        } else {
+          console.error('🟡 Fallback: Gemini API Key not found in process.env or Constants');
         }
       }
 
@@ -803,165 +618,8 @@ ${previousQuestionsSection}
     return this.generateLocalExercises(content, analysis, request);
   }
 
-  /**
-   * Call Bright Data API (as Proxy to Groq/LLM)
-   * Uses https://api.brightdata.com/request structure
-   */
-  private async callBrightDataAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any
-  ): Promise<GeneratedExercise[] | null> {
-    try {
-      const brightDataToken = this.config.apiKey;
-      // We need a target LLM. Since user wanted to replace Groq, we'll try to reach Groq THROUGH Bright Data.
-      // We need the Groq Key for the inner request. We'll try to find it in process.env or fallback.
-      // Note: In a real scenario, we might want to pass the Groq Key explicitly or use a different open model.
-      const groqKey = (process.env as any).EXPO_PUBLIC_GROQ_API_KEY ||
-        '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'; // Fallback to provided key
 
-      const targetUrl = 'https://api.groq.com/openai/v1/chat/completions';
-      const model = this.config.model || 'llama-3.3-70b-versatile';
 
-      console.log(`[BrightData] Proxying request to ${targetUrl} via unblocker...`);
-
-      // Construct the inner body for the LLM
-      const innerBody = {
-        model: model,
-        messages: [
-          {
-            role: 'system',
-            content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      };
-
-      // Construct the outer body for Bright Data
-      const brightDataBody = {
-        zone: this.config.zone || 'unblocker',
-        url: targetUrl,
-        format: 'json', // Changed from 'raw' to 'json' to let Bright Data parse response
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json', // Explicitly ask for JSON
-          'Authorization': `Bearer ${groqKey}`
-        },
-        body: JSON.stringify(innerBody)
-      };
-
-      console.log('Sending request to Bright Data with token starting with:', brightDataToken ? brightDataToken.substring(0, 4) + '...' : 'MISSING');
-      console.log('Targeting Zone:', this.config.zone || 'unblocker');
-
-      const response = await fetch('https://api.brightdata.com/request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${brightDataToken}`,
-        },
-        body: JSON.stringify(brightDataBody),
-      });
-
-      console.log('Bright Data Proxy response status:', response.status);
-
-      const rawResponseText = await response.text();
-      console.log('Bright Data raw response (first 500 chars):', rawResponseText.slice(0, 500));
-
-      if (!response.ok) {
-        console.error('Bright Data Proxy error (status not ok):', rawResponseText);
-        return null;
-      }
-
-      if (!rawResponseText || rawResponseText.trim().length === 0) {
-        console.error('Bright Data Proxy returned empty response');
-        return null;
-      }
-
-      // The response body should be the raw response from Groq
-      let data;
-      try {
-        data = JSON.parse(rawResponseText);
-      } catch (e) {
-        console.error('Failed to parse JSON from Bright Data proxy response:', e);
-        return null;
-      }
-
-      // Validate if we got a valid LLM response
-      if (data.error) {
-        console.error('Target API Error via Proxy:', data.error);
-        return null;
-      }
-
-      const responseText = data.choices?.[0]?.message?.content || '';
-      console.log('Bright Data (Groq) response length:', responseText.length);
-      return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
-    } catch (error) {
-      console.error('Bright Data API error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Call Groq API - Free and fast AI!
-   */
-  private async callGroqAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any,
-    apiKeyOverride?: string
-  ): Promise<GeneratedExercise[] | null> {
-    try {
-      const model = this.config.model || 'llama-3.3-70b-versatile';
-      const apiKey = apiKeyOverride || this.config.apiKey;
-
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            {
-              role: 'system',
-              content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף לפני או אחרי.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.8,
-          max_tokens: 4096,
-        }),
-      });
-
-      const data = await response.json();
-      console.log('Groq API response status:', response.status);
-
-      if (!response.ok) {
-        const errorMessage = data?.error?.message || 'Unknown Groq API error';
-        console.error('Groq API error:', errorMessage);
-        return null;
-      }
-
-      const responseText = data.choices?.[0]?.message?.content || '';
-      console.log('Groq response length:', responseText.length);
-      return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
-    } catch (error) {
-      console.error('Groq API error:', error);
-      return null;
-    }
-  }
 
   /**
    * Call Gemini API with retry logic
@@ -985,7 +643,7 @@ ${previousQuestionsSection}
               contents: [{ role: 'user', parts: [{ text: prompt }] }],
               generationConfig: {
                 temperature: 0.95,
-                maxOutputTokens: 2048,
+                maxOutputTokens: 8192,
                 topP: 0.95,
                 topK: 40,
               },
@@ -1027,17 +685,17 @@ ${previousQuestionsSection}
   }
 
   /**
-   * Call Bedrock API via Vercel Proxy
+   * Call AI API via local Express proxy or Vercel Serverless Function
+   * This hides the API keys from the client
    */
-  private async callBedrockAPI(
+  private async callProxyAPI(
     prompt: string,
     contentId: string,
     analysis: any
   ): Promise<GeneratedExercise[] | null> {
     try {
-      console.log(`[Bedrock] Sending request via /api/ai-chat proxy...`);
-      // Since this is the web platform, we use our Vercel Serverless Function
-      const response = await fetch('/api/ai-chat', {
+      console.log(`[Proxy] Sending request via ${this.getProxyUrl('/api/ai-chat')}...`);
+      const response = await fetch(this.getProxyUrl('/api/ai-chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1047,274 +705,20 @@ ${previousQuestionsSection}
         }),
       });
 
-      console.log('Bedrock API via Proxy response status:', response.status);
+      console.log('AI Proxy response status:', response.status);
 
       if (!response.ok) {
-        console.error('Bedrock Proxy error:', await response.text());
+        console.error('AI Proxy error:', await response.text());
         return null;
       }
 
       const data = await response.json();
       const responseText = data.answer || '';
-      console.log('Bedrock Proxy (Claude) response length:', responseText.length);
-      
-      return this.parseExercisesFromResponse(responseText, contentId, analysis);
-    } catch (error) {
-      console.error('Bedrock Proxy request error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Call DeepSeek API
-   */
-  private async callDeepSeekAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any
-  ): Promise<GeneratedExercise[] | null> {
-    const modelName = this.config.model || 'deepseek-chat';
-    const maxRetries = 3;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.8,
-            max_tokens: 4096,
-          }),
-        });
-
-        const data = await response.json();
-        console.log('DeepSeek API response status:', response.status);
-
-        if (!response.ok) {
-          const errorMessage = data?.error?.message || 'Unknown DeepSeek API error';
-          console.error('DeepSeek API error:', errorMessage);
-          return null;
-        }
-
-        const responseText = data.choices?.[0]?.message?.content || '';
-        console.log('DeepSeek response length:', responseText.length);
-        return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
-      } catch (fetchError) {
-        console.error(`DeepSeek attempt ${attempt} error:`, fetchError);
-        if (attempt === maxRetries) {
-          return null;
-        }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Call Hugging Face API
-   */
-  private async callHuggingFaceAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any
-  ): Promise<GeneratedExercise[] | null> {
-    const model = this.config.model || 'meta-llama/Meta-Llama-3-8B-Instruct';
-
-    try {
-      console.log(`[HuggingFace] Sending request to ${model}... (Platform: ${Platform.OS})`);
-
-      // Call Hugging Face API directly (works on all platforms including GitHub Pages)
-      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 4000,
-            temperature: 0.7,
-            return_full_text: false,
-          },
-        }),
-      });
-
-      console.log('HuggingFace API response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('HuggingFace API error:', errorText);
-        return null;
-      }
-
-      const data = await response.json();
-
-      // Hugging Face output format is typically an array of objects
-      const responseText = Array.isArray(data) ? data[0]?.generated_text : (data?.generated_text || '');
-
-      console.log('HuggingFace response length:', responseText?.length || 0);
-      console.log('HuggingFace response text:', responseText.substring(0, 500)); // Log first 500 chars
-
-      if (!responseText) {
-        console.error('Empty response from Hugging Face');
-        return null;
-      }
+      console.log('AI Proxy response length:', responseText.length);
 
       return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
     } catch (error) {
-      console.error('HuggingFace API error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Call Ollama API
-   * Supports both native Ollama API and OpenAI-compatible API (for ngrok endpoints)
-   */
-  private async callOllamaAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any
-  ): Promise<GeneratedExercise[] | null> {
-    const modelName = this.config.model || 'llama3';
-    const endpoint = this.config.ollamaEndpoint || 'http://localhost:11434';
-
-    // Ensure endpoint doesn't end with slash
-    const baseUrl = endpoint.replace(/\/$/, '');
-
-    // Detect if using OpenAI-compatible endpoint (ngrok, remote servers)
-    const isOpenAICompatible = baseUrl.includes('ngrok') || baseUrl.includes('https://');
-
-    try {
-      if (isOpenAICompatible) {
-        // Use OpenAI-compatible API format (for ngrok endpoints)
-        console.log(`[Ollama] Sending OpenAI-compatible request to ${baseUrl}/v1/chat/completions with model ${modelName}`);
-
-        const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': '69420',
-          },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [
-              {
-                role: 'system',
-                content: 'אתה עוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד, ללא טקסט נוסף.'
-              },
-              {
-                role: 'user',
-                content: prompt
-              }
-            ],
-            temperature: 0.7,
-            max_tokens: 4096,
-          }),
-        });
-
-        console.log('Ollama API response status:', response.status);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Ollama API error:', errorText);
-          return null;
-        }
-
-        const data = await response.json();
-        const responseText = data.choices?.[0]?.message?.content || '';
-        console.log('Ollama response length:', responseText.length);
-
-        return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
-      } else {
-        // Use native Ollama API format (for local installations)
-        console.log(`[Ollama] Sending native request to ${baseUrl}/api/generate with model ${modelName}`);
-
-        const response = await fetch(`${baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': '69420',
-          },
-          body: JSON.stringify({
-            model: modelName,
-            prompt: prompt,
-            stream: false,
-            options: {
-              temperature: 0.7,
-              num_predict: 4096, // Large context for exercises
-              top_p: 0.9,
-            },
-            format: "json", // Request JSON format specifically
-          }),
-        });
-
-        console.log('Ollama API response status:', response.status);
-
-        if (!response.ok) {
-          console.error('Ollama API error status:', response.status);
-          return null;
-        }
-
-        const data = await response.json();
-        const responseText = data.response || '';
-        console.log('Ollama response length:', responseText.length);
-
-        return this.parseExercisesFromResponse(responseText, contentId, analysis);
-      }
-
-    } catch (error) {
-      console.error('Ollama API error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Call OpenAI API
-   */
-  private async callOpenAIAPI(
-    prompt: string,
-    contentId: string,
-    analysis: any,
-    apiKey: string,
-    model?: string
-  ): Promise<GeneratedExercise[] | null> {
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-        }),
-      });
-
-      const data = await response.json();
-      console.log('OpenAI API response status:', response.status);
-
-      if (!response.ok) {
-        const errorMessage = data?.error?.message || 'Unknown OpenAI API error';
-        console.error('OpenAI API error:', errorMessage);
-        return null;
-      }
-
-      const responseText = data.choices?.[0]?.message?.content || '';
-      return this.parseExercisesFromResponse(responseText, contentId, analysis);
-
-    } catch (error) {
-      console.error('OpenAI API error:', error);
+      console.error('AI Proxy request error:', error);
       return null;
     }
   }
@@ -1397,28 +801,33 @@ ${previousQuestionsSection}
    * Clean JSON string by removing control characters and fixing common issues
    */
   private cleanJsonString(jsonString: string): string {
-    // Remove control characters (except for \n, \r, \t which are allowed in JSON strings)
+    // 1. Remove non-printable control characters
     jsonString = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
-    // Remove trailing commas using a more robust lookahead which handles objects and arrays
+    // 2. Fix unescaped newlines within quoted strings (common issue with large AI outputs)
+    let inString = false;
+    let escaped = false;
+    let result = '';
+    for (let i = 0; i < jsonString.length; i++) {
+        const char = jsonString[i];
+        if (char === '"' && !escaped) {
+            inString = !inString;
+        }
+        escaped = (char === '\\' && !escaped);
+        
+        if (inString && (char === '\n' || char === '\r')) {
+            result += '\\n';
+        } else {
+            result += char;
+        }
+    }
+    jsonString = result;
+
+    // 3. Remove trailing commas (e.g., [1, 2, ])
     jsonString = jsonString.replace(/,(?=\s*[}\]])/g, '');
 
-    // Add quotes to unquoted keys
+    // 4. Ensure keys are quoted
     jsonString = jsonString.replace(/([{,]\s*)(\w+):/g, '$1"$2":');
-
-    // Fix common escape issues
-    jsonString = jsonString.replace(/\\n/g, '\\\\n'); // Escape literal \n
-    jsonString = jsonString.replace(/\\t/g, '\\\\t'); // Escape literal \t
-    jsonString = jsonString.replace(/\\r/g, '\\\\r'); // Escape literal \r
-
-    // Remove any remaining problematic characters within strings
-    jsonString = jsonString.replace(/"[^"]*[\x00-\x1F\x7F][^"]*"/g, (match) => {
-      return match.replace(/[\x00-\x1F\x7F]/g, '');
-    });
-
-    // NOTE: The original logic for appending missing brackets/braces was removed.
-    // It was too risky and could create invalid JSON, masking the real error.
-    // It is better to let JSON.parse fail and rely on the fallback mechanisms.
 
     return jsonString;
   }
@@ -1484,18 +893,27 @@ ${previousQuestionsSection}
     contentId: string,
     analysis: any
   ): GeneratedExercise[] {
-    return exercises.map((ex: any, index: number) => ({
-      id: `ex-ai-${index}-${Date.now()}`,
-      contentId: contentId,
-      type: ex.type || 'multiple-choice',
-      question: ex.question,
-      options: ex.options,
-      correctAnswer: ex.correctAnswer,
-      explanation: ex.explanation,
-      difficulty: ex.difficulty || 'medium',
-      topic: ex.topic || analysis.topics[0] || 'general',
-      keywords: ex.keywords || [],
-    })).filter(ex => ex.question && ex.explanation); // Filter out incomplete exercises
+    const supportedTypes = ['multiple-choice', 'true-false', 'fill-blank', 'short-answer'];
+    
+    return exercises.map((ex: any, index: number) => {
+      let safeType = ex.type || 'multiple-choice';
+      if (!supportedTypes.includes(safeType)) {
+        safeType = (ex.options && ex.options.length > 0) ? 'multiple-choice' : 'short-answer';
+      }
+
+      return {
+        id: `ex-ai-${index}-${Date.now()}`,
+        contentId: contentId,
+        type: safeType,
+        question: ex.question,
+        options: ex.options,
+        correctAnswer: ex.correctAnswer,
+        explanation: ex.explanation,
+        difficulty: ex.difficulty || 'medium',
+        topic: ex.topic || (analysis && analysis.topics ? analysis.topics[0] : 'general'),
+        keywords: ex.keywords || [],
+      };
+    }).filter(ex => ex.question && ex.explanation); // Filter out incomplete exercises
   }
 
   /**
@@ -2151,7 +1569,7 @@ ${previousQuestionsSection}
         if (result !== null) {
           return result;
         }
-      } else if (this.config.provider === 'bedrock') {
+      } else if (this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
         const result = await this.callAIForAnswerCheck(question, userAnswer, correctAnswer);
         if (result !== null) {
           return result;
@@ -2240,21 +1658,7 @@ ${previousQuestionsSection}
     try {
       let response: Response | null = null;
 
-      if (this.config.provider === 'groq' && this.config.apiKey) {
-        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: this.config.model || 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1,
-            max_tokens: 150,
-          }),
-        });
-      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
+      if (this.config.provider === 'gemini' && this.config.apiKey) {
         response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2263,22 +1667,8 @@ ${previousQuestionsSection}
             generationConfig: { temperature: 0.1, maxOutputTokens: 150 },
           }),
         });
-      } else if (this.config.provider === 'openai' && this.config.apiKey) {
-        response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: this.config.model || 'gpt-4o-mini',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1,
-            max_tokens: 150,
-          }),
-        });
-      } else if (this.config.provider === 'bedrock' && Platform.OS === 'web') {
-        response = await fetch('/api/ai-chat', {
+      } else if (this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
+        response = await fetch(this.getProxyUrl('/api/ai-chat'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2293,11 +1683,9 @@ ${previousQuestionsSection}
         const data = await response.json();
         let text = '';
 
-        if (this.config.provider === 'groq' || this.config.provider === 'openai') {
-          text = data.choices?.[0]?.message?.content || '';
-        } else if (this.config.provider === 'gemini') {
+        if (this.config.provider === 'gemini') {
           text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        } else if (this.config.provider === 'bedrock') {
+        } else {
           text = data.answer || '';
         }
 

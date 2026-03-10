@@ -758,7 +758,7 @@ export default function UploadContent() {
       </View>
 
       {/* Upload Progress */}
-      {uploadProgress && (
+      {!!uploadProgress && (
         <View style={styles.progressSection}>
           <ActivityIndicator size="large" color={Colors.accent} />
           <Text style={styles.progressText}>{uploadProgress}</Text>
@@ -766,7 +766,7 @@ export default function UploadContent() {
       )}
 
       {/* Upload Button - only show when file is loaded */}
-      {state.fileContent && (
+      {!!state.fileContent && (
         <CustomButton
           title={loading ? 'מעבד...' : 'לחץ כדי להעלות'}
           handlePress={handleUploadAndProcess}
