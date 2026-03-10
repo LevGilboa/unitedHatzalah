@@ -611,6 +611,7 @@ ${previousQuestionsSection}
 - correctAnswer חייב להיות 0 או 1 עבור true-false.
 - options חייב להיות ["נכון", "לא נכון"] עבור true-false.
 - הקפד על JSON תקין לחלוטין.
+- 🔴 אזהרה קריטית 🔴: לעולם אל תשתמש במירכאות כפולות (") בתוך הטקסטים/הערכים (כגון בתוך השאלה או ההסבר)! אם אתה חייב לצטט, השתמש אך ורק בגרש בודד (')! לדוגמה: 'אברהם' ולא "אברהם".
 `;
 
       // Call the configured provider
@@ -642,7 +643,7 @@ ${previousQuestionsSection}
           const savedApiKey = this.config.apiKey;
           const savedModel = this.config.model;
           this.config.apiKey = geminiKey;
-          this.config.model = 'gemini-2.0-flash';
+          this.config.model = 'gemini-1.5-flash';
           chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
           this.config.apiKey = savedApiKey;
           this.config.model = savedModel;
@@ -681,7 +682,7 @@ ${previousQuestionsSection}
     contentId: string,
     analysis: any
   ): Promise<GeneratedExercise[] | null> {
-    const modelName = this.config.model || 'gemini-2.5-flash';
+    const modelName = this.config.model || 'gemini-1.5-flash';
     const maxRetries = 3;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {

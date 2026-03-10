@@ -49,15 +49,19 @@ function getSignedBedrockToken(accessKey, secretKey, region) {
 }
 
 export default async function handler(req, res) {
+    // CORS headers (allow same-origin + Vercel preview URLs)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     // Only allow POST
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
-
-    // CORS headers (allow same-origin + Vercel preview URLs)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     try {
         const { question, systemPrompt, history = [] } = req.body;
