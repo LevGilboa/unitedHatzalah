@@ -41,12 +41,15 @@ export class CourseGeneratorService {
             const analysis = await this.analyzeContent(request.content, request.subject);
 
             // Generate all phases
+            const dynamicPhases = await this.aiProcessor.generateDynamicCoursePlan(request.subject, analysis.summary, request.content.length);
+            const phasesConfig = (dynamicPhases && dynamicPhases.length > 0) ? dynamicPhases : COURSE_PHASES_CONFIG;
+
             const phases: CoursePhase[] = [];
             const allGeneratedQuestions: string[] = [];
 
-            for (let i = 0; i < COURSE_PHASES_CONFIG.length; i++) {
-                const phaseConfig = COURSE_PHASES_CONFIG[i];
-                console.log(`📚 Generating phase ${i + 1}/5: ${phaseConfig.title}`);
+            for (let i = 0; i < phasesConfig.length; i++) {
+                const phaseConfig = phasesConfig[i];
+                console.log(`📚 Generating phase ${i + 1}/${phasesConfig.length}: ${phaseConfig.title}`);
 
                 const phase = await this.generatePhase(
                     request,
@@ -70,7 +73,7 @@ export class CourseGeneratorService {
                 userId: request.userId,
                 contentId: request.contentId,
                 title: request.title,
-                description: `קורס מקיף ב${request.subject} - ${totalExercises} תרגילים ב-5 שלבים`,
+                description: `קורס מקיף ב${request.subject} - ${totalExercises} תרגילים ב-${phasesConfig.length} שלבים`,
                 subject: request.subject,
                 originalContent: request.content,
                 summary: analysis.summary,
@@ -201,11 +204,24 @@ export class CourseGeneratorService {
         phaseOrder: number
     ): Promise<CoursePhase | null> {
         const phaseIndex = phaseOrder - 1;
-        if (phaseIndex < 0 || phaseIndex >= COURSE_PHASES_CONFIG.length) {
+        const originalPhase = course.phases[phaseIndex];
+        
+        if (!originalPhase) {
             return null;
         }
 
-        const config = COURSE_PHASES_CONFIG[phaseIndex];
+        // Reconstruct config from the existing phase, falling back to static config where needed
+        const staticFallback = phaseIndex < COURSE_PHASES_CONFIG.length ? COURSE_PHASES_CONFIG[phaseIndex] : COURSE_PHASES_CONFIG[0];
+        
+        const config: PhaseConfig = {
+            type: originalPhase.type,
+            title: originalPhase.title,
+            description: originalPhase.description,
+            difficulties: staticFallback.difficulties,
+            exerciseTypes: staticFallback.exerciseTypes,
+            exerciseCount: originalPhase.exercises.length > 0 ? originalPhase.exercises.length : staticFallback.exerciseCount,
+            requiredScore: originalPhase.requiredScore
+        };
 
         // Collect questions from other phases to prevent repetition
         const previousQuestions = course.phases
@@ -226,7 +242,6 @@ export class CourseGeneratorService {
         );
 
         // Preserve completion status from original phase
-        const originalPhase = course.phases[phaseIndex];
         if (originalPhase) {
             newPhase.isLocked = originalPhase.isLocked;
             newPhase.isCompleted = originalPhase.isCompleted;

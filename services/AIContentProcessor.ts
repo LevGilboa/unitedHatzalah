@@ -170,6 +170,92 @@ ${truncatedContent}
   }
 
   /**
+   * Generates a custom course plan dynamically matched to the subject
+   */
+  async generateDynamicCoursePlan(
+    subject: string,
+    summary: string,
+    contentLength: number
+  ): Promise<any[] | null> {
+    const prompt = `אתה בונה קורסים מומחה. עליך ליצור תוכנית קורס מותאמת אישית לתוכן בנושא: ${subject}.
+    
+אורך התוכן: ${contentLength} תווים.
+תקציר: ${summary}
+
+צור בין 3 ל-5 שלבים (לפי מורכבות ומספר התווים).
+לכל שלב הגדר:
+- "type": מתוך 'introduction', 'practice', 'deep-dive', 'review', 'exam'
+- "title": שם השלב (לדוגמה: "שלב 1: פתיחה")
+- "description": תיאור קצר
+- "difficulties": מערך המכיל רמות, לדוגמה ["easy"] או ["medium", "hard"]
+- "exerciseTypes": סוגי תרגילים מומלצים לנושא זה. חובה לבחור את הסוגים המתאימים ביותר: במתמטיקה/פיזיקה "fill-blank" ו-"short-answer" לתשובות מספריות. בהיסטוריה/תנך "multiple-choice" שאלות ידע. ברפואה "scenario" לסיטואציות מקרה. סוגים אפשריים: "multiple-choice", "true-false", "fill-blank", "short-answer", "matching", "scenario".
+- "exerciseCount": כמות תרגילים (בין 3 ל-15) שתתאים לשלב. שלב המבחן יכול להיות ארוך יותר.
+- "requiredScore": רף הצלחה באחוזים (בין 60 ל-80).
+
+החזר אך ורק מערך JSON תקני, למשל:
+\`\`\`json
+[
+  {
+    "type": "introduction",
+    "title": "שלב 1: היכרות מחודשת",
+    "description": "שאלות קלות להבנת הבסיס",
+    "difficulties": ["easy"],
+    "exerciseTypes": ["multiple-choice"],
+    "exerciseCount": 5,
+    "requiredScore": 60
+  }
+]
+\`\`\`
+חשוב: החזר רק את ה-JSON, ללא טקסט עזר.`;
+
+    try {
+      if (this.config.provider === 'local') return null;
+
+      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
+        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+
+      if (this.config.provider === 'gemini' && this.config.apiKey && !isProduction) {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
+            }),
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = text.match(/\[[\s\S]*\]/);
+          if (jsonMatch) return JSON.parse(jsonMatch[0]);
+        }
+      } else {
+        const response = await fetch(this.getProxyUrl('/api/ai-chat'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: prompt,
+            systemPrompt: 'אתה בונה קורסים דינאמיים. החזר תמיד JSON array בלבד.',
+            history: [],
+          }),
+        });
+        if (response.ok) {
+          const result = await response.json();
+          const text = result.answer || '';
+          const jsonMatch = text.match(/\[[\s\S]*\]/);
+          if (jsonMatch) return JSON.parse(jsonMatch[0]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to generate dynamic course plan', e);
+    }
+    return null;
+  }
+
+  /**
    * Main method to process uploaded content and generate exercises
    */
   async processContent(

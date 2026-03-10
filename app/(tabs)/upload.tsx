@@ -1,1141 +1,851 @@
+/**
+ * Create Complete Course Page
+ * Upload content and generate a comprehensive 5-phase course
+ */
+
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  I18nManager,
-  Platform,
-  Modal,
-  TextInput,
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    ActivityIndicator,
+    Alert,
+    I18nManager,
+    Platform,
+    Modal,
+    TextInput,
+    Animated,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as mammoth from 'mammoth';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { CustomButton } from '@/components/ui/CustomButton';
 import CustomInput from '@/components/ui/CustomInput';
 import { useAuthStore } from '@/stores/authStore';
-import { useContentAndStudyStore } from '@/stores/contentAndStudyStore';
-import { getAIProcessor } from '@/services/AIContentProcessor';
-import { isAdmin } from '@/constants/AdminConfig';
+import { useCompleteCourseStore } from '@/stores/completeCourseStore';
 
-// Helper function to check if extracted text looks like garbage (mostly numbers/gibberish)
-const isGarbageText = (text: string): boolean => {
-  if (!text || text.length < 50) return false;
+I18nManager.forceRTL(true);
 
-  // Count different character types
-  const digits = (text.match(/\d/g) || []).length;
-  const letters = (text.match(/[a-zA-Zא-ת]/g) || []).length;
-  const total = text.length;
-
-  // Check for specific repeating number patterns (like "11272014" appearing many times)
-  const numberMatches = text.match(/\d{6,}/g) || [];
-  if (numberMatches.length > 5) {
-    // Count how many times each number appears
-    const numberCounts: Record<string, number> = {};
-    for (const num of numberMatches) {
-      numberCounts[num] = (numberCounts[num] || 0) + 1;
-    }
-    const maxNumRepeat = Math.max(...Object.values(numberCounts), 0);
-    if (maxNumRepeat >= 5) {
-      console.log(`[PDF] Number "${Object.entries(numberCounts).find(([_, v]) => v === maxNumRepeat)?.[0]}" repeats ${maxNumRepeat} times - likely garbage`);
-      return true;
-    }
-  }
-
-  // Check for long sequences of numbers (like "11272014 15 11272014 16")
-  const longNumberSequences = text.match(/(\d{5,}\s*){3,}/g);
-  if (longNumberSequences && longNumberSequences.length > 0) {
-    console.log('[PDF] Detected long number sequences - likely garbage');
-    return true;
-  }
-
-  // If more than 30% digits and less than 40% letters, it's probably garbage
-  const digitRatio = digits / total;
-  const letterRatio = letters / total;
-
-  console.log(`[PDF] Text analysis: ${Math.round(digitRatio * 100)}% digits, ${Math.round(letterRatio * 100)}% letters`);
-
-  if (digitRatio > 0.3 && letterRatio < 0.4) {
-    console.log('[PDF] High digit ratio, low letter ratio - likely garbage');
-    return true;
-  }
-
-  // Check for repeating patterns (like "11272014" repeating many times)
-  const words = text.split(/\s+/);
-  const wordCounts: Record<string, number> = {};
-  for (const word of words) {
-    if (word.length > 3) {
-      wordCounts[word] = (wordCounts[word] || 0) + 1;
-    }
-  }
-
-  // If any single "word" repeats more than 10% of all words (and at least 5 times), suspicious
-  const maxRepeat = Math.max(...Object.values(wordCounts), 0);
-  if (maxRepeat > words.length * 0.1 && maxRepeat >= 5) {
-    const repeatingWord = Object.entries(wordCounts).find(([_, v]) => v === maxRepeat)?.[0];
-    console.log(`[PDF] Word "${repeatingWord}" repeating ${maxRepeat} times - likely garbage`);
-    return true;
-  }
-
-  return false;
-};
-
-// Helper function to extract text from PDF locally
-const extractTextFromPDFLocal = async (arrayBuffer: ArrayBuffer): Promise<string> => {
-  try {
+// Helper function to extract text from PDF
+const extractTextFromPDF = async (arrayBuffer: ArrayBuffer): Promise<string> => {
     if (Platform.OS === 'web') {
-      // @ts-ignore - pdfjsLib loaded from CDN
-      let pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+        // @ts-ignore
+        let pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
 
-      if (!pdfjsLib) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('Failed to load PDF.js'));
-          document.head.appendChild(script);
-        });
-      }
+        if (!pdfjsLib) {
+            await new Promise<void>((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('Failed to load PDF.js'));
+                document.head.appendChild(script);
+            });
+        }
 
-      // @ts-ignore
-      const pdfjs = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
-      pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        // @ts-ignore
+        const pdfjs = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-      const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n\n';
-      }
-      return fullText.trim();
+        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            let pageText = '';
+            let lastY = -1;
+
+            for (const item of textContent.items) {
+                const textItem = item as any;
+                const currentY = textItem.transform ? textItem.transform[5] : 0;
+
+                if (lastY !== -1 && Math.abs(currentY - lastY) > 5) {
+                    pageText += '\n';
+                } else if (pageText.length > 0 && !pageText.endsWith(' ') && !pageText.endsWith('\n')) {
+                    pageText += ' ';
+                }
+
+                pageText += textItem.str;
+                lastY = currentY;
+            }
+
+            if (pageText.trim()) {
+                fullText += pageText.trim() + '\n\n';
+            }
+        }
+
+        return fullText.trim();
     }
     throw new Error('PDF extraction not supported on mobile');
-  } catch (error) {
-    console.error('PDF extraction error:', error);
-    throw error;
-  }
 };
 
 // Helper function to extract text from Word documents using mammoth
 const extractTextFromWord = async (arrayBuffer: ArrayBuffer): Promise<string> => {
-  try {
-    console.log('[Word] Starting text extraction...');
-    if (Platform.OS === 'web') {
-      const result = await mammoth.extractRawText({ arrayBuffer });
-      const text = result.value;
+    try {
+        console.log('[Word] Starting text extraction...');
+        if (Platform.OS === 'web') {
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const text = result.value;
 
-      console.log(`[Word] Extracted ${text.length} characters`);
+            console.log(`[Word] Extracted ${text.length} characters`);
 
-      if (result.messages && result.messages.length > 0) {
-        console.log('[Word] Extraction messages:', result.messages);
-      }
+            if (result.messages && result.messages.length > 0) {
+                console.log('[Word] Extraction messages:', result.messages);
+            }
 
-      if (!text || text.trim().length < 50) {
-        throw new Error('EMPTY_DOCUMENT');
-      }
+            if (!text || text.trim().length < 50) {
+                throw new Error('EMPTY_DOCUMENT');
+            }
 
-      return text.trim();
+            return text.trim();
+        }
+        throw new Error('Word extraction not supported on mobile');
+    } catch (error: any) {
+        console.error('[Word] Extraction error:', error);
+        if (error.message === 'EMPTY_DOCUMENT') {
+            throw error;
+        }
+        throw new Error('WORD_EXTRACTION_FAILED');
     }
-    throw new Error('Word extraction not supported on mobile');
-  } catch (error: any) {
-    console.error('[Word] Extraction error:', error);
-    if (error.message === 'EMPTY_DOCUMENT') {
-      throw error;
-    }
-    throw new Error('WORD_EXTRACTION_FAILED');
-  }
 };
 
-I18nManager.forceRTL(true);
-
-interface UploadState {
-  title: string;
-  description: string;
-  subject: string;
-  fileContent: string;
-  fileName: string;
-  fileType: 'pdf' | 'text' | 'document' | 'image';
-}
-
 export default function UploadContent() {
-  const router = useRouter();
-  const user = useAuthStore((state) => state.user);
-  const { uploadContent, updateContentStatus } = useContentAndStudyStore();
-  const [state, setState] = useState<UploadState>({
-    title: '',
-    description: '',
-    subject: '',
-    fileContent: '',
-    fileName: '',
-    fileType: 'text',
-  });
-  const [loading, setLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<string>('');
-  const [showPasteModal, setShowPasteModal] = useState(false);
-  const [showUrlModal, setShowUrlModal] = useState(false);
-  const [pastedText, setPastedText] = useState('');
-  const [urlInput, setUrlInput] = useState('');
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
+    const router = useRouter();
+    const user = useAuthStore((state) => state.user);
+    const {
+        generateCompleteCourse,
+        isGenerating,
+        generationProgress,
+        generationMessage,
+        error,
+        clearError,
+    } = useCompleteCourseStore();
 
-  // Debug: Check if user is authenticated
-  useEffect(() => {
-    console.log('Upload page loaded. User:', user ? user.email : 'Not logged in');
-    console.log('Is admin:', isAdmin(user?.email), 'Email:', user?.email);
-    if (!user) {
-      console.warn('User not authenticated - upload will not work');
-    }
-  }, [user]);
+    const [title, setTitle] = useState('');
+    const [subject, setSubject] = useState('');
+    
+    // New state to hold multiple parts
+    const [uploadedParts, setUploadedParts] = useState<{ id: string; name: string; content: string; type: 'file' | 'text' }[]>([]);
+    
+    const [showPasteModal, setShowPasteModal] = useState(false);
+    const [pastedText, setPastedText] = useState('');
+    const [uploadProgress, setUploadProgress] = useState('');
+    const [progressAnim] = useState(new Animated.Value(0));
 
-  const handlePickFile = async () => {
-    let isPDF = false;
-    let isWord = false;
-    try {
-      console.log('Starting file picker...');
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'text/plain',
-          'text/*',
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/msword'
-        ],
-        copyToCacheDirectory: true,
-      });
-      console.log('File picker result:', result);
+    useEffect(() => {
+        Animated.timing(progressAnim, {
+            toValue: generationProgress,
+            duration: 500,
+            useNativeDriver: false,
+        }).start();
+    }, [generationProgress]);
 
-      if (!result.canceled && result.assets.length > 0) {
-        const file = result.assets[0];
-        setUploadProgress('קריאת קובץ...');
-
-        isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
-        isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
-
-        let fileContentResult = '';
-
+    const handlePickFile = async () => {
         try {
-          if (isPDF || isWord) {
-            setUploadProgress(`מחלץ טקסט מ-${isPDF ? 'PDF' : 'Word'}...`);
-            let arrayBuffer: ArrayBuffer;
-            if (Platform.OS === 'web') {
-              if (file.file) {
-                arrayBuffer = await file.file.arrayBuffer();
-              } else if (file.uri) {
-                const response = await fetch(file.uri);
-                arrayBuffer = await response.arrayBuffer();
-              } else {
-                throw new Error('לא ניתן לקרוא את הקובץ');
-              }
+            const result = await DocumentPicker.getDocumentAsync({
+                type: [
+                    'text/plain',
+                    'text/*',
+                    'application/pdf',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/msword',
+                ],
+                copyToCacheDirectory: true,
+            });
 
-              if (isPDF) {
-                fileContentResult = await extractTextFromPDFLocal(arrayBuffer);
-              } else {
-                fileContentResult = await extractTextFromWord(arrayBuffer);
-              }
-              console.log(`${isPDF ? 'PDF' : 'DOCX'} text extracted, length:`, fileContentResult.length);
-            } else {
-              Alert.alert(
-                'קובץ לא נתמך',
-                'חילוץ קבצים מורכבים לא נתמך במובייל. אנא העתק והדבק את הטקסט באופן ידני.',
-                [{ text: 'הבנתי' }]
-              );
-              setUploadProgress('');
-              return;
+            if (!result.canceled && result.assets.length > 0) {
+                const file = result.assets[0];
+                setUploadProgress('קריאת קובץ...');
+
+                const isPDF = file.mimeType?.includes('pdf') || file.name.endsWith('.pdf');
+                const isWord = file.mimeType?.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx');
+                let content = '';
+
+                if (isPDF || isWord) {
+                    if (Platform.OS === 'web') {
+                        setUploadProgress(`מחלץ טקסט מ-${isPDF ? 'PDF' : 'Word'}...`);
+                        let arrayBuffer: ArrayBuffer;
+                        if (file.file) {
+                            arrayBuffer = await file.file.arrayBuffer();
+                        } else if (file.uri) {
+                            const response = await fetch(file.uri);
+                            arrayBuffer = await response.arrayBuffer();
+                        } else {
+                            throw new Error('לא ניתן לקרוא את הקובץ');
+                        }
+
+                        if (isPDF) {
+                            content = await extractTextFromPDF(arrayBuffer);
+                        } else {
+                            content = await extractTextFromWord(arrayBuffer);
+                        }
+                    } else {
+                        Alert.alert(
+                            'קובץ לא נתמך',
+                            'חילוץ קבצים מורכבים לא נתמך במובייל. אנא העתק והדבק את הטקסט.',
+                            [{ text: 'הבנתי' }]
+                        );
+                        setUploadProgress('');
+                        return;
+                    }
+                } else {
+                    if (Platform.OS === 'web') {
+                        if (file.file) {
+                            content = await file.file.text();
+                        } else if (file.uri) {
+                            const response = await fetch(file.uri);
+                            content = await response.text();
+                        }
+                    } else {
+                        content = await FileSystem.readAsStringAsync(file.uri, {
+                            encoding: FileSystem.EncodingType.UTF8,
+                        });
+                    }
+                }
+
+                if (!content || content.trim().length === 0) {
+                    Alert.alert('קובץ ריק', 'הקובץ ריק או לא ניתן לקריאה.');
+                    setUploadProgress('');
+                    return;
+                }
+
+                setUploadedParts(prev => [
+                    ...prev,
+                    {
+                        id: `part-${Date.now()}`,
+                        name: file.name,
+                        content,
+                        type: 'file',
+                    }
+                ]);
+                
+                setUploadProgress('');
+                Alert.alert('הצלחה', `"${file.name}" התווסף בהצלחה (${content.length} תווים)`);
             }
-          } else {
-            // Handle plain text files
-            console.log('Reading text file, Platform:', Platform.OS);
-            if (Platform.OS === 'web') {
-              if (file.file) {
-                fileContentResult = await file.file.text();
-              } else if (file.uri) {
-                const response = await fetch(file.uri);
-                fileContentResult = await response.text();
-              } else {
-                throw new Error('לא ניתן לקרוא את הקובץ בדפדפן זה');
-              }
-            } else {
-              fileContentResult = await FileSystem.readAsStringAsync(
-                file.uri,
-                { encoding: FileSystem.EncodingType.UTF8 }
-              );
-            }
-          }
-        } catch (error: any) {
-          console.error('File reading error:', error);
+        } catch (error) {
+            console.error('Error picking file:', error);
+            Alert.alert('שגיאה', 'אירעה שגיאה בעת בחירת הקובץ');
+            setUploadProgress('');
+        }
+    };
 
-          const errorMessage = error.message || '';
-          const isQuotaError = errorMessage.includes('quota') || errorMessage.includes('429');
-          const isScannedPDF = errorMessage === 'SCANNED_PDF';
-          const isEmptyWord = errorMessage === 'EMPTY_DOCUMENT';
+    const handlePasteConfirm = () => {
+        if (pastedText.trim()) {
+            setUploadedParts(prev => [
+                ...prev,
+                {
+                    id: `part-${Date.now()}`,
+                    name: `טקסט מודבק (${pastedText.substring(0, 10)}...)`,
+                    content: pastedText,
+                    type: 'text',
+                }
+            ]);
+            setShowPasteModal(false);
+            setPastedText('');
+            Alert.alert('הצלחה', 'הטקסט התווסף בהצלחה');
+        } else {
+            Alert.alert('שגיאה', 'אנא הזן טקסט');
+        }
+    };
 
-          if (isScannedPDF) {
-            Alert.alert(
-              '📷 PDF סרוק',
-              'נראה שה-PDF מכיל תמונות ולא טקסט (PDF סרוק).\n\nמה לעשות:\n1. פתח את ה-PDF במחשב\n2. סמן וגרר את הטקסט (Ctrl+A)\n3. העתק (Ctrl+C)\n4. לחץ "הדבק טקסט" כאן והדבק (Ctrl+V)',
-              [{ text: 'הבנתי' }]
-            );
-          } else if (isEmptyWord) {
-            Alert.alert(
-              '📄 מסמך ריק',
-              'נראה שמסמך ה-Word ריק או מכיל רק תמונות.\n\nאנא העתק את הטקסט ידנית והדבק דרך כפתור "הדבק טקסט".',
-              [{ text: 'הבנתי' }]
-            );
-          } else if (isQuotaError) {
-            Alert.alert(
-              'מכסת API נגמרה',
-              'המערכת הגיעה למגבלת הבקשות. אנא המתן דקה ונסה שוב.',
-              [{ text: 'הבנתי' }]
-            );
-          } else {
-            Alert.alert(
-              'שגיאה בקריאת קובץ',
-              isPDF
-                ? 'לא הצלחנו לחלץ טקסט מה-PDF. אנא נסה להעתיק את הטקסט ידנית.'
-                : isWord
-                  ? 'לא הצלחנו לחלץ טקסט מה-Word. אנא נסה להעתיק את הטקסט ידנית.'
-                  : 'לא הצלחנו לקרוא את הקובץ. אנא נסה להעתיק את הטקסט ידנית.',
-              [{ text: 'הבנתי' }]
-            );
-          }
-          setUploadProgress('');
-          return;
+    const handleCreateCourse = async () => {
+        if (uploadedParts.length === 0) {
+            Alert.alert('שגיאה', 'אנא העלה קבצים או הדבק טקסט');
+            return;
         }
 
-        if (!fileContentResult || fileContentResult.trim().length === 0) {
-          Alert.alert(
-            'קובץ ריק',
-            'הקובץ שבחרת ריק או לא ניתן לקריאה.',
-            [{ text: 'הבנתי' }]
-          );
-          setUploadProgress('');
-          return;
-        }
+        clearError();
+        const userId = user?.email || `guest-${Date.now()}`;
+        const contentId = `content-${Date.now()}`;
 
-        console.log('File loaded successfully:', file.name, 'Content length:', fileContentResult.length);
+        // Combine all parts into a single content block with source markers
+        const combinedContent = uploadedParts.map(part => 
+            `--- מקור: ${part.name} ---\n${part.content}\n`
+        ).join('\n');
 
-        setState((prev) => ({
-          ...prev,
-          fileContent: fileContentResult,
-          fileName: file.name,
-          fileType: isPDF ? 'pdf' : isWord ? 'document' : 'text',
-        }));
+        const firstPartName = uploadedParts[0].name;
+        const finalTitle = title.trim() || `קורס: ${firstPartName}${uploadedParts.length > 1 ? ' ועוד' : ''}`;
+        const finalSubject = subject.trim() || 'כללי';
 
-        setUploadProgress('');
-        Alert.alert('הצלחה', `הקובץ "${file.name}" נטען בהצלחה`);
-      }
-    } catch (error) {
-      console.error('Error picking file:', error);
-      const errorMsg = error instanceof Error ? error.message : 'אירעה שגיאה בעת בחירת הקובץ';
-      Alert.alert('שגיאה', errorMsg);
-    } finally {
-      setUploadProgress('');
-    }
-  };
-
-  const handlePasteText = () => {
-    setShowPasteModal(true);
-    setPastedText('');
-  };
-
-  const handlePasteConfirm = () => {
-    if (pastedText.trim()) {
-      setState((prev) => ({
-        ...prev,
-        fileContent: pastedText,
-        fileName: `text-${Date.now()}`,
-        fileType: 'text',
-      }));
-      setShowPasteModal(false);
-      setPastedText('');
-      Alert.alert('הצלחה', 'הטקסט נטען בהצלחה');
-    } else {
-      Alert.alert('שגיאה', 'אנא הזן טקסט');
-    }
-  };
-
-  const handleUrlSubmit = async () => {
-    if (!urlInput.trim()) {
-      Alert.alert('שגיאה', 'אנא הזן קישור תקין');
-      return;
-    }
-
-    try {
-      setUploadProgress('טוען תוכן מהקישור...');
-      setShowUrlModal(false);
-      setLoading(true);
-
-      const processor = getAIProcessor();
-      const content = await processor.fetchContentFromUrl(urlInput);
-
-      if (!content || content.length < 50) {
-        throw new Error('לא נמצא תוכן מספיק בקישור זה');
-      }
-
-      setState((prev) => ({
-        ...prev,
-        fileContent: content,
-        fileName: `url-${new URL(urlInput).hostname}`,
-        fileType: 'text',
-        description: `מקור: ${urlInput}`
-      }));
-
-      setUrlInput('');
-      Alert.alert('הצלחה', 'התוכן נטען בהצלחה מהקישור');
-    } catch (error) {
-      console.error('URL fetch error:', error);
-      Alert.alert('שגיאה', `לא הצלחנו לטעון את הקישור.\n${error instanceof Error ? error.message : ''}`);
-    } finally {
-      setLoading(false);
-      setUploadProgress('');
-    }
-  };
-
-  const validateForm = (): boolean => {
-    console.log('Validating form:', {
-      title: state.title,
-      subject: state.subject,
-      fileContentLength: state.fileContent.length
-    });
-
-    // Title and subject are optional - AI will generate them if not provided
-    if (!state.fileContent.trim()) {
-      console.log('Validation failed: missing content');
-      Alert.alert('שגיאה', 'אנא העלה או הדבק תוכן ללימוד');
-      return false;
-    }
-    console.log('Form validation passed');
-    return true;
-  };
-
-  const handleUploadAndProcess = async () => {
-    console.log('Starting upload process...');
-    console.log('User:', user?.email);
-    console.log('State:', { title: state.title, subject: state.subject, fileContentLength: state.fileContent.length });
-
-    if (!validateForm()) {
-      console.log('Form validation failed');
-      return;
-    }
-
-    // No longer require authentication - guest mode is supported
-
-    try {
-      setLoading(true);
-      const isGuest = useAuthStore.getState().isGuest;
-      const userId = user?.email || `guest-${Date.now()}`;
-
-      // Auto-generate title and subject if not provided
-      let finalTitle = state.title.trim();
-      let finalSubject = state.subject.trim();
-
-      if (!finalTitle || !finalSubject) {
-        setUploadProgress('מארגן את תוכן הקובץ...');
-        const processor = getAIProcessor();
-        const autoGenerated = await processor.generateTitleAndSubject(state.fileContent);
-        if (!finalTitle) finalTitle = autoGenerated.title;
-        if (!finalSubject) finalSubject = autoGenerated.subject;
-        console.log('Auto-generated:', { finalTitle, finalSubject });
-      }
-
-      let contentId = `local-${Date.now()}`;
-
-      if (!isGuest) {
-        // Only save to Firebase for authenticated users
-        setUploadProgress('העלאת קובץ...');
-        console.log('Uploading to Firestore...');
-
-        contentId = await uploadContent({
-          userId: userId,
-          fileName: state.fileName || `content-${Date.now()}`,
-          fileType: state.fileType,
-          fileUrl: `gs://bucket/${state.fileName}`,
-          title: finalTitle,
-          description: state.description,
-          subject: finalSubject,
-          uploadedAt: Date.now(),
-          status: 'processing',
+        const course = await generateCompleteCourse({
+            contentId,
+            userId,
+            title: finalTitle,
+            content: combinedContent,
+            subject: finalSubject,
         });
 
-        console.log('Content uploaded successfully, ID:', contentId);
-      } else {
-        console.log('Guest mode - skipping Firebase upload');
-      }
+        if (course) {
+            Alert.alert(
+                'הקורס נוצר! 🎉',
+                `"${course.title}" מוכן עם ${course.totalExercises} תרגילים ב-5 שלבים.`,
+                [
+                    {
+                        text: 'התחל ללמוד',
+                        onPress: () => router.push({
+                            pathname: '/complete-course' as any,
+                            params: { courseId: course.id },
+                        }),
+                    },
+                    { text: 'חזור', style: 'cancel' },
+                ]
+            );
 
-      setUploadProgress('עיבוד התוכן בעזרת AI...');
-
-      // Fetch good question examples for this subject to improve AI generation
-      const { fetchGoodQuestionExamples, fetchBadQuestionExamples } = useContentAndStudyStore.getState();
-      const goodExamples = await fetchGoodQuestionExamples(finalSubject, 5);
-      const badExamples = await fetchBadQuestionExamples(finalSubject, 5);
-      console.log('Good examples found:', goodExamples.length);
-      console.log('Bad examples found:', badExamples.length);
-
-      // Process content with AI, using good and bad examples for better questions
-      const processor = getAIProcessor();
-      const response = await processor.processContent({
-        contentId,
-        userId: userId,
-        title: finalTitle,
-        content: state.fileContent,
-        subject: finalSubject,
-        preferredExerciseTypes: [
-          'multiple-choice',
-          'true-false',
-          'matching',
-        ],
-        targetDifficulty: ['easy', 'medium', 'hard'],
-        numberOfExercises: 10,
-      }, goodExamples, badExamples);
-
-      console.log('AI processing complete. Exercises:', response.exercises?.length);
-
-      if (!response.exercises || response.exercises.length === 0) {
-        throw new Error('לא הצלחנו ליצור תרגילים מהתוכן');
-      }
-
-      // Create study set from generated exercises
-      setUploadProgress('יצירת מערך תרגול...');
-
-      const studySetData = {
-        userId: userId,
-        contentId,
-        title: finalTitle,
-        description: response.summary || '',
-        subject: finalSubject,
-        exercises: response.exercises,
-        originalContent: state.fileContent, // Save content for regenerating exercises
-        completedExercises: 0,
-        totalExercises: response.exercises.length,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      console.log('Creating study set with data:', {
-        ...studySetData,
-        exercises: `${studySetData.exercises.length} exercises`,
-      });
-
-      let setId: string;
-
-      if (!isGuest) {
-        // Save to Firebase for authenticated users
-        const { createStudySet } = useContentAndStudyStore.getState();
-        setId = await createStudySet(studySetData);
-        console.log('Study set created in Firebase, ID:', setId);
-
-        // Update content status
-        await updateContentStatus(contentId, 'completed');
-      } else {
-        // For guests, store locally and use local ID
-        setId = `local-${Date.now()}`;
-        // Store in local state for the session
-        const { setLocalStudySet } = useContentAndStudyStore.getState();
-        if (setLocalStudySet) {
-          setLocalStudySet({ ...studySetData, id: setId });
+            // Reset form
+            setTitle('');
+            setSubject('');
+            setUploadedParts([]);
+        } else if (error) {
+            Alert.alert('שגיאה', error);
         }
-        console.log('Study set stored locally for guest, ID:', setId);
-      }
+    };
 
-      setUploadProgress('');
-      Alert.alert(
-        'הצלחה!',
-        `תוכן "${finalTitle}" עובד בהצלחה. נוצרו ${response.exercises.length} תרגילים${isGuest ? '\n\n💡 התחבר כדי לשמור את ההתקדמות שלך!' : ''}`,
-        [
-          {
-            text: 'התחל ללמוד',
-            onPress: () => {
-              // Navigate to study set with ID
-              router.push(`/study-set?setId=${setId}`);
-            },
-          },
-          { text: 'חזור לבית', onPress: () => router.back() },
-        ]
-      );
+    const SUBJECTS = [
+        'מתמטיקה', 'פיזיקה', 'כימיה', 'ביולוגיה', 'ספרות',
+        'היסטוריה', 'גיאוגרפיה', 'תכנות', 'אנגלית', 'אחר',
+    ];
 
-      // Reset form
-      setState({
-        title: '',
-        description: '',
-        subject: '',
-        fileContent: '',
-        fileName: '',
-        fileType: 'text',
-      });
-    } catch (error) {
-      console.error('Error processing content:', error);
-      Alert.alert(
-        'שגיאה',
-        `אירעה שגיאה: ${error instanceof Error ? error.message : 'שגיאה לא ידועה'}`
-      );
-    } finally {
-      setLoading(false);
-      setUploadProgress('');
-    }
-  };
-
-  const SUBJECTS = [
-    'מתמטיקה',
-    'פיזיקה',
-    'כימיה',
-    'ביולוגיה',
-    'ספרות',
-    'היסטוריה',
-    'גיאוגרפיה',
-    'תכנות',
-    'אנגלית',
-    'אומנות',
-    'ספורט',
-    'אחר',
-  ];
-
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.push('/(tabs)')}
-          style={{ alignSelf: 'flex-end' }}
-        >
-          <Ionicons name="chevron-forward" size={28} color="black" />
-        </TouchableOpacity>
-        <Text style={styles.title}>העלאת חומר לימוד</Text>
-        {/* Admin Button - only visible to admins */}
-        {isAdmin(user?.email) ? (
-          <TouchableOpacity
-            onPress={() => router.push('/admin')}
-            style={styles.adminButton}
-          >
-            <Ionicons name="settings-outline" size={24} color={Colors.accent} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-      </View>
-
-      {/* Title Input */}
-      <View style={styles.section}>
-        <Text style={styles.label}>כותרת החומר (אופציונלי)</Text>
-        <CustomInput
-          placeholder="לדוגמה: פרק 3 - התהליך הפוטוסינתטי"
-          handleTextChange={(text: string) => setState((prev) => ({ ...prev, title: text }))}
-          value={state.title}
-        />
-      </View>
-
-      {/* Subject Selection */}
-      <View style={styles.section}>
-        <Text style={styles.label}>תחום ידע (אופציונלי - יזוהה אוטומטית)</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.subjectScroll}
-        >
-          {SUBJECTS.map((subject) => (
-            <TouchableOpacity
-              key={subject}
-              style={[
-                styles.subjectChip,
-                state.subject === subject && styles.subjectChipActive,
-              ]}
-              onPress={() => setState((prev) => ({ ...prev, subject }))}
-              disabled={loading}
-            >
-              <Text
-                style={[
-                  styles.subjectChipText,
-                  state.subject === subject && styles.subjectChipTextActive,
-                ]}
-              >
-                {subject}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Description Input */}
-      <View style={styles.section}>
-        <Text style={styles.label}>תיאור (אופציונלי)</Text>
-        <CustomInput
-          placeholder="תיאור קצר של התוכן"
-          handleTextChange={(text: string) => setState((prev) => ({ ...prev, description: text }))}
-          value={state.description}
-        />
-      </View>
-
-      {/* File Upload Section */}
-      <View style={styles.section}>
-        <Text style={styles.label}>העלאת קובץ</Text>
-        <Text style={styles.fileTypeHint}>
-          📄 ניתן להעלות קבצי PDF ו-Word (docx), אך הקריאה תתבצע במיטבה בקבצי Word
-        </Text>
-
-        {state.fileContent ? (
-          <View style={styles.uploadedFile}>
-            <Text style={styles.uploadedFileName}>{state.fileName}</Text>
-            <Text style={styles.uploadedFileSize}>
-              {state.fileContent.length} תווים
-            </Text>
-            <View style={styles.uploadedFileButtons}>
-              {isAdmin(user?.email) && (
-                <TouchableOpacity
-                  style={styles.previewButton}
-                  onPress={() => setShowPreviewModal(true)}
-                  disabled={loading}
-                >
-                  <Ionicons name="eye" size={16} color="white" />
-                  <Text style={styles.previewButtonText}>בדיקה</Text>
+    return (
+        <View style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.push('/(tabs)')} style={{ padding: 8 }}>
+                    <Ionicons name="chevron-forward" size={24} color={Colors.white} />
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={styles.removeButton}
-                onPress={() =>
-                  setState((prev) => ({
-                    ...prev,
-                    fileContent: '',
-                    fileName: '',
-                  }))
-                }
-                disabled={loading}
-              >
-                <Text style={styles.removeButtonText}>הסר</Text>
-              </TouchableOpacity>
+                <View style={styles.headerContent}>
+                    <Text style={styles.headerTitle}>יצירת קורס מקיף</Text>
+                    <Text style={styles.headerSubtitle}>5 שלבים לשליטה מלאה בחומר</Text>
+                </View>
+                <MaterialCommunityIcons name="school" size={28} color={Colors.white} />
             </View>
-          </View>
-        ) : (
-          <>
-            <CustomButton
-              title="בחר קובץ"
-              handlePress={handlePickFile}
-              disabled={loading}
-              backgroundColor={Colors.accent}
-            />
-            <View style={styles.dividerContainer}>
-              <Text style={styles.divider}>או</Text>
-            </View>
-            <CustomButton
-              title="הדבק טקסט"
-              handlePress={handlePasteText}
-              disabled={loading}
-              backgroundColor={Colors.secondary}
-            />
-            <View style={styles.dividerContainer}>
-              <Text style={styles.divider}>או</Text>
-            </View>
-            <CustomButton
-              title="🌐 ייבא מקישור (URL)"
-              handlePress={() => setShowUrlModal(true)}
-              disabled={loading}
-              backgroundColor={Colors.primary}
-            />
-            <View style={styles.dividerContainer}>
-              <Text style={styles.divider}>או</Text>
-            </View>
-            <CustomButton
-              title="📁 אל הקבצים שלי"
-              handlePress={() => router.push('/(tabs)/my-content')}
-              disabled={loading}
-              backgroundColor="#4CAF50"
-            />
-            <View style={styles.dividerContainer}>
-              <Text style={styles.divider}>או</Text>
-            </View>
-            <CustomButton
-              title="🚀 בניית קורס מלא (5 שלבים)"
-              handlePress={() => router.push('/create-complete-course' as any)}
-              disabled={loading}
-              backgroundColor={Colors.purple}
-            />
-          </>
-        )}
-      </View>
 
-      {/* Upload Progress */}
-      {!!uploadProgress && (
-        <View style={styles.progressSection}>
-          <ActivityIndicator size="large" color={Colors.accent} />
-          <Text style={styles.progressText}>{uploadProgress}</Text>
-        </View>
-      )}
+            {/* Generation Progress */}
+            {isGenerating && (
+                <View style={styles.generationOverlay}>
+                    <View style={styles.generationCard}>
+                        <ActivityIndicator size="large" color={Colors.purple} />
+                        <Text style={styles.generationMessage}>{generationMessage}</Text>
+                        <View style={styles.progressBarContainer}>
+                            <Animated.View
+                                style={[
+                                    styles.progressBarFill,
+                                    {
+                                        width: progressAnim.interpolate({
+                                            inputRange: [0, 100],
+                                            outputRange: ['0%', '100%'],
+                                        })
+                                    }
+                                ]}
+                            />
+                        </View>
+                        <Text style={styles.progressPercent}>{Math.round(generationProgress)}%</Text>
+                    </View>
+                </View>
+            )}
 
-      {/* Upload Button - only show when file is loaded */}
-      {!!state.fileContent && (
-        <CustomButton
-          title={loading ? 'מעבד...' : 'לחץ כדי להעלות'}
-          handlePress={handleUploadAndProcess}
-          disabled={loading}
-          backgroundColor={Colors.accent}
-        />
-      )}
-
-      <View style={{ height: 40 }} />
-
-      {/* Paste Text Modal */}
-      <Modal
-        visible={showPasteModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowPasteModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>הדבק טקסט</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="הדבק או הקלד את התוכן כאן..."
-              multiline
-              numberOfLines={10}
-              value={pastedText}
-              onChangeText={setPastedText}
-              textAlignVertical="top"
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setShowPasteModal(false)}
-              >
-                <Text style={styles.modalButtonText}>ביטול</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handlePasteConfirm}
-              >
-                <Text style={[styles.modalButtonText, { color: 'white' }]}>אישור</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* URL Input Modal */}
-      <Modal
-        visible={showUrlModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowUrlModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>ייבא מקישור</Text>
-            <Text style={styles.modalSubtitle}>הזן כתובת אתר (למשל כתבה או מאמר):</Text>
-            <TextInput
-              style={[styles.modalInput, { minHeight: 50, textAlign: 'left' }]}
-              placeholder="https://example.com/article..."
-              value={urlInput}
-              onChangeText={setUrlInput}
-              autoCapitalize="none"
-              keyboardType="url"
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setShowUrlModal(false)}
-              >
-                <Text style={styles.modalButtonText}>ביטול</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handleUrlSubmit}
-              >
-                <Text style={[styles.modalButtonText, { color: 'white' }]}>ייבא</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Preview Content Modal (Admin Only) */}
-      <Modal
-        visible={showPreviewModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowPreviewModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.previewModalContent]}>
-            <View style={styles.previewModalHeader}>
-              <Ionicons name="eye" size={24} color={Colors.accent} />
-              <Text style={styles.modalTitle}>בדיקת תוכן לפני עיבוד</Text>
-            </View>
-            <Text style={styles.previewFileName}>{state.fileName}</Text>
-            <Text style={styles.previewCharCount}>{state.fileContent.length} תווים</Text>
-            <ScrollView style={styles.previewScrollView}>
-              <Text style={styles.previewText} selectable>
-                {state.fileContent}
-              </Text>
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.previewCloseButton}
-              onPress={() => setShowPreviewModal(false)}
+            <ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.previewCloseButtonText}>סגור</Text>
-            </TouchableOpacity>
-          </View>
+                {/* Info Card */}
+                <View style={styles.infoCard}>
+                    <MaterialCommunityIcons name="information-outline" size={24} color={Colors.purple} />
+                    <Text style={styles.infoText}>
+                        העלה חומר לימוד ונייצר לך קורס מלא עם 5 שלבים: היכרות, תרגול, העמקה, חזרה, ומבחן סיכום.{'\n'}
+                        בסוף הקורס תדע את החומר ישר והפוך! 🎓
+                    </Text>
+                </View>
+
+                {/* Title Input */}
+                <View style={styles.section}>
+                    <Text style={styles.label}>שם הקורס (אופציונלי)</Text>
+                    <CustomInput
+                        placeholder="לדוגמה: ביולוגיה - פרק 3"
+                        handleTextChange={setTitle}
+                        value={title}
+                    />
+                </View>
+
+                {/* Subject Selection */}
+                <View style={styles.section}>
+                    <Text style={styles.label}>תחום (אופציונלי)</Text>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.subjectScroll}
+                    >
+                        {SUBJECTS.map((sub) => (
+                            <TouchableOpacity
+                                key={sub}
+                                style={[
+                                    styles.subjectChip,
+                                    subject === sub && styles.subjectChipActive,
+                                ]}
+                                onPress={() => setSubject(subject === sub ? '' : sub)}
+                            >
+                                <Text style={[
+                                    styles.subjectChipText,
+                                    subject === sub && styles.subjectChipTextActive,
+                                ]}>
+                                    {sub}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+
+                {/* File Upload */}
+                <View style={styles.section}>
+                    <Text style={styles.label}>תוכן הלימוד</Text>
+
+                    {uploadedParts.length > 0 && (
+                        <View style={styles.partsList}>
+                            {uploadedParts.map((part) => (
+                                <View key={part.id} style={styles.uploadedFile}>
+                                    <View style={styles.fileInfo}>
+                                        <Ionicons 
+                                            name={part.type === 'file' ? 'document-text' : 'text'} 
+                                            size={24} 
+                                            color={Colors.purple} 
+                                        />
+                                        <View style={styles.fileDetails}>
+                                            <Text style={styles.fileName}>{part.name}</Text>
+                                            <Text style={styles.fileSize}>{part.content.length} תווים</Text>
+                                        </View>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.removeButton}
+                                        onPress={() => {
+                                            setUploadedParts(prev => prev.filter(p => p.id !== part.id));
+                                        }}
+                                    >
+                                        <Ionicons name="close-circle" size={24} color={Colors.error} />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
+                    <View style={[styles.uploadButtons, uploadedParts.length > 0 && { marginTop: 12 }]}>
+                        <TouchableOpacity style={styles.uploadButton} onPress={handlePickFile}>
+                            <Ionicons name="cloud-upload" size={32} color={Colors.purple} />
+                            <Text style={styles.uploadButtonText}>הוסף קובץ</Text>
+                            <Text style={styles.uploadButtonHint}>PDF, Word או TXT</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.uploadButton}
+                            onPress={() => setShowPasteModal(true)}
+                        >
+                            <Ionicons name="clipboard" size={32} color={Colors.purple} />
+                            <Text style={styles.uploadButtonText}>הדבק טקסט</Text>
+                            <Text style={styles.uploadButtonHint}>הוסף קטע קצר</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {uploadProgress && (
+                        <View style={styles.uploadProgressContainer}>
+                            <ActivityIndicator size="small" color={Colors.purple} />
+                            <Text style={styles.uploadProgressText}>{uploadProgress}</Text>
+                        </View>
+                    )}
+                </View>
+
+                {/* Create Course Button */}
+                {uploadedParts.length > 0 && !isGenerating && (
+                    <View style={styles.createSection}>
+                        <TouchableOpacity
+                            style={styles.createButton}
+                            onPress={handleCreateCourse}
+                        >
+                            <MaterialCommunityIcons name="rocket-launch" size={24} color={Colors.white} />
+                            <Text style={styles.createButtonText}>צור קורס מקיף</Text>
+                        </TouchableOpacity>
+
+                        <Text style={styles.createHint}>
+                            ייווצרו כ-50 שאלות ב-5 שלבים
+                        </Text>
+                    </View>
+                )}
+
+                {/* Course Structure Preview */}
+                <View style={styles.previewSection}>
+                    <Text style={styles.previewTitle}>מבנה הקורס:</Text>
+                    {[
+                        { icon: '📖', title: 'שלב 1: היכרות', desc: '5 שאלות קלות' },
+                        { icon: '📝', title: 'שלב 2: תרגול בסיסי', desc: '10 שאלות בינוניות' },
+                        { icon: '🧠', title: 'שלב 3: העמקה', desc: '10 שאלות מאתגרות' },
+                        { icon: '🔄', title: 'שלב 4: חזרה חכמה', desc: '10 שאלות מעורבות' },
+                        { icon: '🏆', title: 'שלב 5: מבחן סיכום', desc: '15 שאלות מסכמות' },
+                    ].map((phase, index) => (
+                        <View key={index} style={styles.previewPhase}>
+                            <Text style={styles.previewIcon}>{phase.icon}</Text>
+                            <View style={styles.previewPhaseContent}>
+                                <Text style={styles.previewPhaseTitle}>{phase.title}</Text>
+                                <Text style={styles.previewPhaseDesc}>{phase.desc}</Text>
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            </ScrollView>
+
+            {/* Paste Modal */}
+            <Modal
+                visible={showPasteModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowPasteModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>הדבק טקסט</Text>
+                        <TextInput
+                            style={styles.modalInput}
+                            placeholder="הדבק את התוכן כאן..."
+                            multiline
+                            numberOfLines={10}
+                            value={pastedText}
+                            onChangeText={setPastedText}
+                            textAlignVertical="top"
+                        />
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.modalButtonCancel]}
+                                onPress={() => setShowPasteModal(false)}
+                            >
+                                <Text style={styles.modalButtonText}>ביטול</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalButton, styles.modalButtonConfirm]}
+                                onPress={handlePasteConfirm}
+                            >
+                                <Text style={[styles.modalButtonText, { color: Colors.white }]}>אישור</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
-      </Modal>
-    </ScrollView>
-  );
+    );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
-  contentContainer: {
-    paddingBottom: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  adminButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#FFF3E0',
-  },
-  section: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.text,
-    marginBottom: 12,
-  },
-  fileTypeHint: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 12,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  subjectScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  subjectChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  subjectChipActive: {
-    backgroundColor: Colors.accent,
-    borderColor: Colors.accent,
-  },
-  subjectChipText: {
-    fontSize: 13,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  subjectChipTextActive: {
-    color: Colors.white,
-  },
-  uploadedFile: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  uploadedFileName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  uploadedFileSize: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
-  },
-  removeButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#ff6b6b',
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-  },
-  removeButtonText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  divider: {
-    textAlign: 'center',
-    color: '#ccc',
-    marginVertical: 12,
-    fontSize: 12,
-  },
-  dividerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 4,
-  },
-  progressSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 24,
-    alignItems: 'center',
-  },
-  progressText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    width: '100%',
-    maxWidth: 500,
-    maxHeight: '80%',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    minHeight: 200,
-    textAlign: 'right',
-    backgroundColor: '#f9f9f9',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-    gap: 12,
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  modalButtonCancel: {
-    backgroundColor: '#f0f0f0',
-  },
-  modalButtonConfirm: {
-    backgroundColor: Colors.accent,
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  uploadedFileButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  previewButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: Colors.accent,
-    borderRadius: 8,
-  },
-  previewButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  previewModalContent: {
-    maxHeight: '90%',
-  },
-  previewModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  previewFileName: {
-    fontSize: 14,
-    color: Colors.accent,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  previewCharCount: {
-    fontSize: 12,
-    color: Colors.gray,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  previewScrollView: {
-    maxHeight: 400,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#f9f9f9',
-    marginBottom: 16,
-  },
-  previewText: {
-    fontSize: 14,
-    color: Colors.text,
-    textAlign: 'right',
-    lineHeight: 22,
-  },
-  previewCloseButton: {
-    backgroundColor: Colors.accent,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  previewCloseButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+    container: {
+        flex: 1,
+        backgroundColor: Colors.backgroundLight,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        paddingTop: 50,
+        backgroundColor: Colors.purple,
+    },
+    headerContent: {
+        flex: 1,
+        marginHorizontal: 12,
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: Colors.white,
+        textAlign: 'right',
+    },
+    headerSubtitle: {
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.8)',
+        textAlign: 'right',
+        marginTop: 2,
+    },
+    generationOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 100,
+    },
+    generationCard: {
+        backgroundColor: Colors.white,
+        borderRadius: 20,
+        padding: 32,
+        alignItems: 'center',
+        width: '85%',
+        maxWidth: 350,
+    },
+    generationMessage: {
+        fontSize: 16,
+        color: Colors.textDark,
+        marginTop: 16,
+        textAlign: 'center',
+        fontWeight: '500',
+    },
+    progressBarContainer: {
+        width: '100%',
+        height: 8,
+        backgroundColor: Colors.lightGray,
+        borderRadius: 4,
+        marginTop: 20,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: Colors.purple,
+        borderRadius: 4,
+    },
+    progressPercent: {
+        fontSize: 14,
+        color: Colors.gray,
+        marginTop: 8,
+    },
+    scrollView: {
+        flex: 1,
+    },
+    scrollContent: {
+        padding: 16,
+        paddingBottom: 40,
+    },
+    infoCard: {
+        flexDirection: 'row',
+        backgroundColor: Colors.backgroundOverlay,
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 20,
+    },
+    infoText: {
+        flex: 1,
+        marginLeft: 12,
+        fontSize: 14,
+        color: Colors.textDark,
+        lineHeight: 22,
+        textAlign: 'right',
+    },
+    section: {
+        marginBottom: 20,
+    },
+    label: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Colors.textDark,
+        marginBottom: 10,
+        textAlign: 'right',
+    },
+    subjectScroll: {
+        marginHorizontal: -4,
+    },
+    subjectChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        backgroundColor: Colors.white,
+        marginHorizontal: 4,
+        borderWidth: 2,
+        borderColor: Colors.border,
+    },
+    subjectChipActive: {
+        backgroundColor: Colors.purple,
+        borderColor: Colors.purple,
+    },
+    subjectChipText: {
+        fontSize: 14,
+        color: Colors.text,
+        fontWeight: '500',
+    },
+    subjectChipTextActive: {
+        color: Colors.white,
+    },
+    uploadButtons: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    uploadButton: {
+        flex: 1,
+        backgroundColor: Colors.white,
+        borderRadius: 16,
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: Colors.border,
+        borderStyle: 'dashed',
+    },
+    uploadButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: Colors.textDark,
+        marginTop: 8,
+    },
+    uploadButtonHint: {
+        fontSize: 12,
+        color: Colors.gray,
+        marginTop: 4,
+    },
+    partsList: {
+        gap: 12,
+    },
+    uploadedFile: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: Colors.white,
+        borderRadius: 12,
+        padding: 16,
+        borderWidth: 2,
+        borderColor: Colors.success,
+    },
+    fileInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    fileDetails: {
+        marginLeft: 12,
+    },
+    fileName: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: Colors.textDark,
+    },
+    fileSize: {
+        fontSize: 12,
+        color: Colors.gray,
+        marginTop: 2,
+    },
+    removeButton: {
+        padding: 4,
+    },
+    uploadProgressContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 12,
+        gap: 8,
+    },
+    uploadProgressText: {
+        fontSize: 14,
+        color: Colors.purple,
+    },
+    createSection: {
+        alignItems: 'center',
+        marginVertical: 20,
+    },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.purple,
+        paddingVertical: 16,
+        paddingHorizontal: 32,
+        borderRadius: 16,
+        gap: 10,
+        shadowColor: Colors.purple,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 6,
+    },
+    createButtonText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: Colors.white,
+    },
+    createHint: {
+        fontSize: 13,
+        color: Colors.gray,
+        marginTop: 8,
+    },
+    previewSection: {
+        backgroundColor: Colors.white,
+        borderRadius: 16,
+        padding: 20,
+        marginTop: 10,
+    },
+    previewTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: Colors.textDark,
+        marginBottom: 16,
+        textAlign: 'right',
+    },
+    previewPhase: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.lightGray,
+    },
+    previewIcon: {
+        fontSize: 24,
+        marginRight: 12,
+    },
+    previewPhaseContent: {
+        flex: 1,
+    },
+    previewPhaseTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: Colors.textDark,
+        textAlign: 'right',
+    },
+    previewPhaseDesc: {
+        fontSize: 12,
+        color: Colors.gray,
+        textAlign: 'right',
+        marginTop: 2,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        backgroundColor: Colors.white,
+        borderRadius: 16,
+        padding: 20,
+        width: '100%',
+        maxHeight: '80%',
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: Colors.textDark,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    modalInput: {
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderRadius: 12,
+        padding: 16,
+        fontSize: 16,
+        minHeight: 200,
+        textAlign: 'right',
+        backgroundColor: Colors.lightGray,
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 16,
+    },
+    modalButton: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    modalButtonCancel: {
+        backgroundColor: Colors.lightGray,
+    },
+    modalButtonConfirm: {
+        backgroundColor: Colors.purple,
+    },
+    modalButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Colors.textDark,
+    },
 });
