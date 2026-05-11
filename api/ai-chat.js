@@ -7,46 +7,47 @@
  * POST /api/ai-chat
  * Body: { question: string, systemPrompt: string, history: [{role, content}] }
  * Returns: { answer: string }
+ * 
+ * Cost optimization: Uses Amazon Nova Lite ($0.06/1M input, $0.24/1M output)
+ * instead of openai.gpt-oss-120b ($15-60/1M tokens)
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import crypto from 'crypto';
 
-// Helper to sign Bedrock requests dynamically using SigV4
-function getSignedBedrockToken(accessKey, secretKey, region) {
-    const now = new Date();
-    const amzDate = now.toISOString().replace(/[:-]/g, '').split('.')[0] + 'Z';
-    const dateStamp = amzDate.substring(0, 8);
-    const host = 'bedrock.amazonaws.com';
-    const urlPath = '/';
-    const credentialScope = `${dateStamp}/${region}/bedrock/aws4_request`;
+// ── Simple in-memory rate limiter ────────────────────────────────────────────
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 100;    // max 100 requests per minute
 
-    function getSignatureKey(key, dateStamp, regionName, serviceName) {
-        const kDate = crypto.createHmac('sha256', 'AWS4' + key).update(dateStamp, 'utf8').digest();
-        const kRegion = crypto.createHmac('sha256', kDate).update(regionName, 'utf8').digest();
-        const kService = crypto.createHmac('sha256', kRegion).update(serviceName, 'utf8').digest();
-        const kSigning = crypto.createHmac('sha256', kService).update('aws4_request', 'utf8').digest();
-        return kSigning;
-    }
-
-    let canonicalQueryString = [
-        `Action=CallWithBearerToken`,
-        `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
-        `X-Amz-Credential=${encodeURIComponent(accessKey + '/' + credentialScope)}`,
-        `X-Amz-Date=${amzDate}`,
-        `X-Amz-Expires=3600`, // Short expiry for the request itself
-        `X-Amz-SignedHeaders=host`
-    ].join('&');
-
-    const canonicalRequest = `GET\n${urlPath}\n${canonicalQueryString}\nhost:${host}\n\nhost\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`;
-    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${crypto.createHash('sha256').update(canonicalRequest, 'utf8').digest('hex')}`;
-    const signingKey = getSignatureKey(secretKey, dateStamp, region, 'bedrock');
-    const signature = crypto.createHmac('sha256', signingKey).update(stringToSign, 'utf8').digest('hex');
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const key = ip || 'unknown';
+    const entry = rateLimitMap.get(key);
     
-    canonicalQueryString += `&X-Amz-Signature=${signature}`;
-    const signedUrl = `bedrock.amazonaws.com/?${canonicalQueryString}`;
-    return 'bedrock-api-key-' + Buffer.from(signedUrl).toString('base64');
+    if (!entry || now - entry.start > RATE_LIMIT_WINDOW_MS) {
+        rateLimitMap.set(key, { start: now, count: 1 });
+        return true;
+    }
+    
+    entry.count++;
+    if (entry.count > MAX_REQUESTS_PER_WINDOW) {
+        return false;
+    }
+    return true;
 }
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap.entries()) {
+        if (now - entry.start > RATE_LIMIT_WINDOW_MS * 2) {
+            rateLimitMap.delete(key);
+        }
+    }
+}, 5 * 60 * 1000);
+
+// ── Max request size (characters) ────────────────────────────────────────────
+const MAX_REQUEST_CHARS = 50000;
 
 export default async function handler(req, res) {
     // CORS headers (allow same-origin + Vercel preview URLs)
@@ -63,6 +64,13 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
+    // Rate limiting
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+        console.warn(`[ai-chat] Rate limit exceeded for ${clientIp}`);
+        return res.status(429).json({ error: 'Too many requests. Please wait a minute.' });
+    }
+
     try {
         const { question, systemPrompt, history = [] } = req.body;
 
@@ -70,9 +78,16 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Missing required fields: question, systemPrompt' });
         }
 
+        // Request size guard
+        const totalChars = (question?.length || 0) + (systemPrompt?.length || 0) + 
+            history.reduce((sum, h) => sum + (h.content?.length || 0), 0);
+        if (totalChars > MAX_REQUEST_CHARS) {
+            console.warn(`[ai-chat] Request too large: ${totalChars} chars (max ${MAX_REQUEST_CHARS})`);
+            return res.status(413).json({ error: `Request too large (${totalChars} chars). Max: ${MAX_REQUEST_CHARS}` });
+        }
+
         // Build the full message array
         const messages = [
-            { role: 'system', content: systemPrompt },
             ...history.slice(-8),   // Keep last 8 turns to limit token usage
             { role: 'user', content: question },
         ];
@@ -80,102 +95,103 @@ export default async function handler(req, res) {
         let answer = null;
         const errors = [];
 
-        // ── 0. Try AWS Bedrock via OpenAI-compatible endpoint (bedrock-mantle) ────
-        // Note: No EXPO_PUBLIC_ prefix so it is NEVER baked into the client by mistake.
-        const awsApiKey = process.env.AWS_BEDROCK_API_KEY;
-        const bedrockBaseUrl = process.env.BEDROCK_OPENAI_BASE_URL || 'https://bedrock-mantle.eu-central-1.api.aws/v1';
-        const bedrockModel = process.env.BEDROCK_MODEL || 'openai.gpt-oss-120b';
+        // ── 0. Try AWS Bedrock — Amazon Nova Lite (cheapest!) ─────────────────
         const awsKeyId = process.env.AWS_ACCESS_KEY_ID;
         const awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
-        const awsRegion = process.env.AWS_REGION || "eu-central-1";
+        const awsRegion = process.env.AWS_REGION || "us-east-1";
+        const bedrockModel = process.env.BEDROCK_MODEL || "amazon.nova-lite-v1:0";
 
-        if (!answer && (awsApiKey || (awsKeyId && awsSecretKey))) {
+        if (!answer && awsKeyId && awsSecretKey) {
             try {
-                // If we have permanent keys but no API key, generate a dynamic token
-                const effectiveApiKey = awsApiKey || getSignedBedrockToken(awsKeyId, awsSecretKey, awsRegion);
-                
-                if (effectiveApiKey) {
-                    // ── Preferred: OpenAI-compatible bedrock-mantle endpoint ────────
-                    console.log(`[ai-chat] Using Bedrock via OpenAI-compatible endpoint (${bedrockModel}) - ${awsApiKey ? 'Static' : 'Dynamic'} Token`);
-                    try {
-                        const r = await fetch(`${bedrockBaseUrl}/chat/completions`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${effectiveApiKey}`
-                            },
-                            body: JSON.stringify({
-                                model: bedrockModel,
-                                messages,
-                                max_tokens: 8192,
-                                temperature: 0.7
-                            })
-                        });
+                console.log(`[ai-chat] Using Bedrock model: ${bedrockModel} in ${awsRegion}`);
 
-                        if (r.ok) {
-                            const data = await r.json();
-                            const message = data.choices?.[0]?.message;
-                            if (message && message.content === null && message.reasoning) {
-                                console.warn('[ai-chat] Warning: content is null but reasoning is present. Falling back to reasoning.');
-                                answer = message.reasoning;
-                            } else {
-                                answer = message?.content || null;
-                            }
-
-                            if (!answer) {
-                                console.error('[ai-chat] ERROR: answer is null but response was OK. Data:', JSON.stringify(data));
-                                errors.push('Bedrock (mantle): Empty response content');
-                            }
-                        } else {
-                            const errText = await r.text();
-                            console.warn('[ai-chat] Bedrock mantle error:', r.status, errText);
-                            errors.push(`Bedrock mantle: ${r.status} ${errText}`);
-                        }
-                    } catch (fetchErr) {
-                        console.error('[ai-chat] Bedrock mantle fetch exception:', fetchErr.message);
-                        errors.push(`Bedrock mantle fetch failed: ${fetchErr.message}`);
+                const client = new BedrockRuntimeClient({
+                    region: awsRegion,
+                    credentials: {
+                        accessKeyId: awsKeyId,
+                        secretAccessKey: awsSecretKey
                     }
-                } else {
-                    // ── Fallback: AWS SDK with IAM credentials ──────────────────────
-                    const systemText = messages.find(m => m.role === 'system')?.content || '';
-                    const claudePayload = {
+                });
+
+                // Amazon Nova uses a different payload format than Claude
+                const isNovaModel = bedrockModel.startsWith('amazon.nova');
+                const isClaudeModel = bedrockModel.startsWith('anthropic.');
+
+                let payload;
+                if (isNovaModel) {
+                    // Amazon Nova format
+                    payload = {
+                        messages: messages.map(m => ({
+                            role: m.role === 'assistant' ? 'assistant' : 'user',
+                            content: [{ text: m.content }]
+                        })),
+                        system: [{ text: systemPrompt }],
+                        inferenceConfig: {
+                            max_new_tokens: 4096,
+                            temperature: 0.7,
+                            top_p: 0.9
+                        }
+                    };
+                } else if (isClaudeModel) {
+                    // Claude format
+                    payload = {
                         anthropic_version: "bedrock-2023-05-31",
-                        max_tokens: 8192,
-                        system: systemText,
+                        max_tokens: 4096,
+                        system: systemPrompt,
                         messages: messages.filter(m => m.role !== 'system')
                     };
-                    const client = new BedrockRuntimeClient({
-                        region: awsRegion,
-                        credentials: {
-                            accessKeyId: awsKeyId,
-                            secretAccessKey: awsSecretKey
-                        }
-                    });
-                    const command = new InvokeModelCommand({
-                        modelId: "anthropic.claude-3-haiku-20240307-v1:0",
-                        contentType: "application/json",
-                        accept: "application/json",
-                        body: JSON.stringify(claudePayload)
-                    });
-                    const response = await client.send(command);
-                    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+                } else {
+                    // Generic format (fallback)
+                    payload = {
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...messages
+                        ],
+                        max_tokens: 4096,
+                        temperature: 0.7
+                    };
+                }
+
+                const command = new InvokeModelCommand({
+                    modelId: bedrockModel,
+                    contentType: "application/json",
+                    accept: "application/json",
+                    body: JSON.stringify(payload)
+                });
+
+                const response = await client.send(command);
+                const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+                // Extract answer based on model type
+                if (isNovaModel) {
+                    answer = responseBody.output?.message?.content?.[0]?.text || null;
+                } else if (isClaudeModel) {
                     answer = responseBody.content?.[0]?.text || null;
-                    if (!answer) errors.push('Bedrock SDK: Empty response content');
+                } else {
+                    answer = responseBody.choices?.[0]?.message?.content ||
+                             responseBody.content?.[0]?.text || null;
+                }
+
+                if (answer) {
+                    console.log(`[ai-chat] ✅ Bedrock ${bedrockModel} success (${answer.length} chars)`);
+                } else {
+                    console.error('[ai-chat] Bedrock returned empty answer. Response:', JSON.stringify(responseBody).substring(0, 500));
+                    errors.push(`Bedrock ${bedrockModel}: Empty response`);
                 }
             } catch (e) {
                 console.error('[ai-chat] AWS Bedrock error:', e.message);
                 errors.push(`Bedrock: ${e.message}`);
             }
-        } else if (!awsApiKey && (!awsKeyId || !awsSecretKey)) {
-            errors.push('Bedrock: Missing credentials');
+        } else if (!awsKeyId || !awsSecretKey) {
+            errors.push('Bedrock: Missing AWS credentials');
         }
 
-        // ── 1. Try Gemini ────────────────────────────────────────────────────────
+        // ── 1. Fallback: Try Gemini ──────────────────────────────────────────
         const geminiKey = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
         if (!answer && geminiKey) {
             try {
                 // Gemini uses alternating user/model turns (no system role)
-                const systemText = messages.find(m => m.role === 'system')?.content || '';
+                const systemText = systemPrompt || '';
                 const geminiContents = messages
                     .filter(m => m.role !== 'system')
                     .map((m, i) => ({
@@ -187,20 +203,24 @@ export default async function handler(req, res) {
                     }));
 
                 const r = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: geminiContents,
-                            generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+                            generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
                         }),
                     }
                 );
                 if (r.ok) {
                     const data = await r.json();
                     answer = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-                    if (!answer) errors.push('Gemini: Empty response content');
+                    if (answer) {
+                        console.log(`[ai-chat] ✅ Gemini fallback success (${answer.length} chars)`);
+                    } else {
+                        errors.push('Gemini: Empty response content');
+                    }
                 } else {
                     const errText = await r.text();
                     console.warn('[ai-chat] Gemini', r.status, errText);
@@ -215,8 +235,10 @@ export default async function handler(req, res) {
         }
 
         if (!answer) {
+            console.error('[ai-chat] All providers failed:', errors);
             return res.status(502).json({
                 error: 'כל ספקי ה-AI נכשלו. בדוק את Environment Variables ב-Vercel Dashboard.',
+                details: errors,
             });
         }
 

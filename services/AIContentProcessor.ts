@@ -40,8 +40,12 @@ class AIContentProcessor {
       return `http://localhost:3000${path}`;
     }
     
-    // In production (GitHub Pages), we must use the absolute URL to Vercel
+    // In production (GitHub Pages), use the absolute URL to the AI proxy server
     const proxyUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_PROXY_URL || '';
+    if (!proxyUrl) {
+      console.warn('[AI] No EXPO_PUBLIC_PROXY_URL configured — proxy calls will fail. Using Gemini direct fallback.');
+      return ''; // Will cause fetch to fail, triggering Gemini fallback
+    }
     return `${proxyUrl}${path}`;
   }
 
@@ -86,13 +90,16 @@ ${truncatedContent}
   }
 
   private async callAIForTitleSubject(prompt: string): Promise<{ title: string; subject: string } | null> {
-    try {
-      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
-        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    // Try to get Gemini key from multiple sources
+    const geminiKey = this.config.apiKey || 
+      (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+      (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-      if (this.config.provider === 'gemini' && this.config.apiKey && !isProduction) {
+    // 1. Try Gemini direct (works everywhere — no server needed)
+    if (geminiKey) {
+      try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -111,8 +118,16 @@ ${truncatedContent}
             if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
           }
         }
-      } else if (isProduction || this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
-        const response = await fetch(this.getProxyUrl('/api/ai-chat'), {
+      } catch (error) {
+        console.error('Gemini direct title/subject failed:', error);
+      }
+    }
+
+    // 2. Fallback: Try proxy (local dev server or deployed proxy)
+    const proxyUrl = this.getProxyUrl('/api/ai-chat');
+    if (proxyUrl) {
+      try {
+        const response = await fetch(proxyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -130,10 +145,11 @@ ${truncatedContent}
             if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
           }
         }
+      } catch (error) {
+        console.error('AI proxy title/subject failed:', error);
       }
-    } catch (error) {
-      console.error('AI title/subject generation failed:', error);
     }
+
     return null;
   }
 
@@ -211,29 +227,40 @@ ${truncatedContent}
     try {
       if (this.config.provider === 'local') return null;
 
-      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
-        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      // Try to get Gemini key from multiple sources
+      const geminiKey = this.config.apiKey || 
+        (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+        (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-      if (this.config.provider === 'gemini' && this.config.apiKey && !isProduction) {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.config.apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
-            }),
+      // 1. Try Gemini direct
+      if (geminiKey) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
+              }),
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) return JSON.parse(jsonMatch[0]);
           }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          const jsonMatch = text.match(/\[[\s\S]*\]/);
-          if (jsonMatch) return JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          console.error('Gemini direct course plan failed:', e);
         }
-      } else {
-        const response = await fetch(this.getProxyUrl('/api/ai-chat'), {
+      }
+
+      // 2. Fallback: proxy
+      const proxyUrl = this.getProxyUrl('/api/ai-chat');
+      if (proxyUrl) {
+        const response = await fetch(proxyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -334,7 +361,7 @@ ${truncatedContent}
 המטרה שלך היא להחזיר אובייקט JSON תקני בלבד המכיל את הסיכום והנושאים המרכזיים של הטקסט.
 
 הטקסט לניתוח:
-${content.substring(0, 30000)} ${content.length > 30000 ? '... (הטקסט קוצר)' : ''}
+${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קוצר לחיסכון)' : ''}
 
 עליך להחזיר אך ורק JSON במבנה הבא:
 \`\`\`json
@@ -345,25 +372,60 @@ ${content.substring(0, 30000)} ${content.length > 30000 ? '... (הטקסט קו�
 \`\`\`
 חשוב: החזר רק את ה-JSON, ללא שום טקסט מקדים או עוקב.`;
 
-      // Use the proxy directly to get the summary
-      const response = await fetch(this.getProxyUrl(''), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          question: 'Analyze content',
-          systemPrompt: analysisPrompt,
-          history: []
-        }),
-      });
+      // Try to get Gemini key from multiple sources
+      const geminiKey = this.config.apiKey || 
+        (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+        (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-      if (!response.ok) {
-        throw new Error(`Proxy error: ${response.status}`);
+      let answer = '';
+
+      // 1. Try Gemini direct
+      if (geminiKey) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: analysisPrompt }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+              }),
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            answer = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          }
+        } catch (e) {
+          console.error('[AI] Gemini direct analysis failed:', e);
+        }
       }
 
-      const data = await response.json();
-      const answer = data.answer || '';
+      // 2. Fallback: proxy
+      if (!answer) {
+        const proxyUrl = this.getProxyUrl('/api/ai-chat');
+        if (proxyUrl) {
+          const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: 'Analyze content',
+              systemPrompt: analysisPrompt,
+              history: []
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(`Proxy error: ${response.status}`);
+          }
+          const data = await response.json();
+          answer = data.answer || '';
+        }
+      }
+
+      if (!answer) {
+        throw new Error('No AI response for content analysis');
+      }
       
       // Extract JSON from response
       const jsonMatch = answer.match(/```json\n([\s\S]*?)\n```/) || answer.match(/```([\s\S]*?)```/) || [null, answer];
@@ -616,12 +678,10 @@ ${forceNew ? `
     }
 
     // Chunking logic
-    // Chunking logic
-    // Increased to 50,000 to process almost all content in a single batch as requested
-    const CHUNK_SIZE = 50000;
+    // Reduced to 15,000 for cost optimization (Amazon Nova Lite is cheap but let's be efficient)
+    const CHUNK_SIZE = 15000;
 
-    // Most modern models (Gemini 1.5, Llama 3.1, etc.) have large context windows.
-    // We'll treat them all as capable unless the content is massive.
+    // Most modern models have large context windows.
     const isLargeContextModel = true;
     const shouldUseChunks = content.length > CHUNK_SIZE && !isLargeContextModel;
 
@@ -703,38 +763,29 @@ ${previousQuestionsSection}
       // Call the configured provider
       let chunkResult: GeneratedExercise[] | null = null;
 
-      const isProduction = Platform.OS === 'web' && typeof window !== 'undefined' &&
-        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      // Get Gemini key from multiple sources
+      const geminiKey = this.config.apiKey || 
+        (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+        (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-      // Primary: Proxy (Bedrock OR Gemini via Vercel)
-      if (isProduction || this.config.provider === 'bedrock' || (this.config.provider === 'gemini' && !this.config.apiKey)) {
-        console.log(`🟢 Trying AI Proxy (primary${isProduction ? ' - Production Mode' : ''} for ${this.config.provider})...`);
-        chunkResult = await this.callProxyAPI(prompt, request.contentId, analysis);
-      } else if (this.config.provider === 'gemini' && this.config.apiKey) {
-        console.log('🟢 Trying Gemini API (primary - Development Mode)...');
+      // 1. Primary: Try Gemini direct (works everywhere, no server needed)
+      if (geminiKey) {
+        console.log('🟢 Trying Gemini API direct (primary)...');
+        const savedApiKey = this.config.apiKey;
+        const savedModel = this.config.model;
+        this.config.apiKey = geminiKey;
+        this.config.model = 'gemini-2.0-flash';
         chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
+        this.config.apiKey = savedApiKey;
+        this.config.model = savedModel;
       }
 
-      // Fallback: Gemini if Bedrock failed
-      if (!chunkResult && this.config.provider !== 'gemini') {
-        let geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-        if (!geminiKey) {
-          try {
-            const Constants = require('expo-constants').default;
-            geminiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
-          } catch (e) { /* Constants not available */ }
-        }
-        if (geminiKey) {
-          console.log('🟡 Fallback: Trying Gemini API...');
-          const savedApiKey = this.config.apiKey;
-          const savedModel = this.config.model;
-          this.config.apiKey = geminiKey;
-          this.config.model = 'gemini-1.5-flash';
-          chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
-          this.config.apiKey = savedApiKey;
-          this.config.model = savedModel;
-        } else {
-          console.error('🟡 Fallback: Gemini API Key not found in process.env or Constants');
+      // 2. Fallback: Try proxy (local dev server or deployed proxy like Render.com)
+      if (!chunkResult) {
+        const proxyUrl = this.getProxyUrl('/api/ai-chat');
+        if (proxyUrl) {
+          console.log(`🟡 Fallback: Trying AI Proxy (${proxyUrl.substring(0, 40)}...)...`);
+          chunkResult = await this.callProxyAPI(prompt, request.contentId, analysis);
         }
       }
 
@@ -824,7 +875,7 @@ ${previousQuestionsSection}
   }
 
   /**
-   * Call AI API via local Express proxy or Vercel Serverless Function
+   * Call AI API via local Express proxy or deployed server
    * This hides the API keys from the client
    */
   private async callProxyAPI(

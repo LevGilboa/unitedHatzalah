@@ -46,11 +46,13 @@ export default function RootLayout() {
     }
 
     // Initialize AI processor based on provider
-    if (aiProvider === 'bedrock') {
-      // Use AWS Bedrock (credentials are securely handled by Vercel serverless functions /api/ai-chat)
-      console.log('[AI] initializeAIProcessor -> provider: bedrock (via Vercel Proxy)');
+    if (aiProvider === 'bedrock' && geminiApiKey) {
+      // Bedrock requires a server proxy. Use Gemini as primary, proxy as fallback.
+      console.log('[AI] initializeAIProcessor -> provider: gemini (bedrock needs proxy, Gemini used as primary)');
       initializeAIProcessor({
-        provider: 'bedrock',
+        provider: 'gemini',
+        apiKey: geminiApiKey,
+        model: 'gemini-2.0-flash',
       });
     } else if (aiProvider === 'gemini' && geminiApiKey) {
       // Use Gemini API for AI-powered exercise generation

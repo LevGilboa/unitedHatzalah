@@ -2,9 +2,6 @@
 // This file replaces app.json to allow environment-based configuration
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-// Vercel automatically sets VERCEL=1 in its build environment.
-// GitHub Pages does NOT set this, so we use it to distinguish deployments.
-const IS_VERCEL = !!process.env.VERCEL;
 
 export default {
     expo: {
@@ -60,29 +57,23 @@ export default {
         ],
         experiments: {
             typedRoutes: true,
-            // baseUrl is only needed for GitHub Pages (served under /unitedHatzalah).
-            // On Vercel the app runs at root /, so no baseUrl is needed there.
-            ...(IS_PRODUCTION && !IS_VERCEL && { baseUrl: "/unitedHatzalah" })
+            ...(IS_PRODUCTION && { baseUrl: "/unitedHatzalah" })
         },
         extra: {
             router: {
-                // Expo Router needs 'origin' in production to construct absolute URLs correctly.
-                // Without it: "TypeError: Failed to construct 'URL': Invalid URL" → blank screen.
-                ...(IS_VERCEL && { origin: "https://united-hatzalah.vercel.app" }),
                 asyncRoutes: false
             },
             eas: {
                 projectId: "d10248c4-1c0b-4d84-9360-cbf0071b20be"
             },
-            // ⚠️  AI API keys are NOT here — they live only in Vercel Environment Variables
-            // and are accessed by /api/ai-chat.js (Vercel Serverless Function).
+            // AI API keys live on the server (Render.com / local server).
             // Only non-secret config mapping:
             EXPO_PUBLIC_AI_PROVIDER: process.env.AI_PROVIDER || process.env.EXPO_PUBLIC_AI_PROVIDER,
             EXPO_PUBLIC_GROQ_MODEL: process.env.GROQ_MODEL || process.env.EXPO_PUBLIC_GROQ_MODEL,
             EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.HUGGINGFACE_MODEL || process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
             EXPO_PUBLIC_OLLAMA_ENDPOINT: process.env.OLLAMA_ENDPOINT || process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT,
             EXPO_PUBLIC_OLLAMA_MODEL: process.env.OLLAMA_MODEL || process.env.EXPO_PUBLIC_OLLAMA_MODEL,
-            EXPO_PUBLIC_PROXY_URL: process.env.PROXY_URL || process.env.EXPO_PUBLIC_PROXY_URL || "https://united-hatzalah.vercel.app",
+            EXPO_PUBLIC_PROXY_URL: process.env.PROXY_URL || process.env.EXPO_PUBLIC_PROXY_URL || "",
         }
     }
 };
