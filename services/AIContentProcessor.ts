@@ -90,12 +90,38 @@ ${truncatedContent}
   }
 
   private async callAIForTitleSubject(prompt: string): Promise<{ title: string; subject: string } | null> {
-    // Try to get Gemini key from multiple sources
+    // 1. Primary: Try proxy (Bedrock via server — cheap & reliable)
+    const proxyUrl = this.getProxyUrl('/api/ai-chat');
+    if (proxyUrl) {
+      try {
+        const response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: prompt,
+            systemPrompt: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.',
+            history: [],
+          }),
+        });
+        if (response.ok) {
+          const result = await response.json();
+          const text = result.answer || '';
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
+          }
+        }
+      } catch (error) {
+        console.error('AI proxy title/subject failed:', error);
+      }
+    }
+
+    // 2. Fallback: Try Gemini direct (if proxy unavailable)
     const geminiKey = this.config.apiKey || 
       (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
       (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-    // 1. Try Gemini direct (works everywhere — no server needed)
     if (geminiKey) {
       try {
         const response = await fetch(
@@ -120,33 +146,6 @@ ${truncatedContent}
         }
       } catch (error) {
         console.error('Gemini direct title/subject failed:', error);
-      }
-    }
-
-    // 2. Fallback: Try proxy (local dev server or deployed proxy)
-    const proxyUrl = this.getProxyUrl('/api/ai-chat');
-    if (proxyUrl) {
-      try {
-        const response = await fetch(proxyUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question: prompt,
-            systemPrompt: 'אתה עוזר ליצירת כותרות ונושאים לחומרי לימוד. תמיד החזר JSON תקין בלבד.',
-            history: [],
-          }),
-        });
-        if (response.ok) {
-          const result = await response.json();
-          const text = result.answer || '';
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (parsed.title && parsed.subject) return { title: parsed.title, subject: parsed.subject };
-          }
-        }
-      } catch (error) {
-        console.error('AI proxy title/subject failed:', error);
       }
     }
 
@@ -227,12 +226,35 @@ ${truncatedContent}
     try {
       if (this.config.provider === 'local') return null;
 
-      // Try to get Gemini key from multiple sources
+      // 1. Primary: proxy (Bedrock via server — cheap)
+      const proxyUrl = this.getProxyUrl('/api/ai-chat');
+      if (proxyUrl) {
+        try {
+          const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: prompt,
+              systemPrompt: 'אתה בונה קורסים דינאמיים. החזר תמיד JSON array בלבד.',
+              history: [],
+            }),
+          });
+          if (response.ok) {
+            const result = await response.json();
+            const text = result.answer || '';
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) return JSON.parse(jsonMatch[0]);
+          }
+        } catch (e) {
+          console.error('Proxy course plan failed:', e);
+        }
+      }
+
+      // 2. Fallback: Gemini direct
       const geminiKey = this.config.apiKey || 
         (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
         (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
 
-      // 1. Try Gemini direct
       if (geminiKey) {
         try {
           const response = await fetch(
@@ -254,26 +276,6 @@ ${truncatedContent}
           }
         } catch (e) {
           console.error('Gemini direct course plan failed:', e);
-        }
-      }
-
-      // 2. Fallback: proxy
-      const proxyUrl = this.getProxyUrl('/api/ai-chat');
-      if (proxyUrl) {
-        const response = await fetch(proxyUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question: prompt,
-            systemPrompt: 'אתה בונה קורסים דינאמיים. החזר תמיד JSON array בלבד.',
-            history: [],
-          }),
-        });
-        if (response.ok) {
-          const result = await response.json();
-          const text = result.answer || '';
-          const jsonMatch = text.match(/\[[\s\S]*\]/);
-          if (jsonMatch) return JSON.parse(jsonMatch[0]);
         }
       }
     } catch (e) {
@@ -372,40 +374,12 @@ ${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קו�
 \`\`\`
 חשוב: החזר רק את ה-JSON, ללא שום טקסט מקדים או עוקב.`;
 
-      // Try to get Gemini key from multiple sources
-      const geminiKey = this.config.apiKey || 
-        (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
-        (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
-
       let answer = '';
 
-      // 1. Try Gemini direct
-      if (geminiKey) {
+      // 1. Primary: proxy (Bedrock via server — cheap)
+      const proxyUrl = this.getProxyUrl('/api/ai-chat');
+      if (proxyUrl) {
         try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: analysisPrompt }] }],
-                generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
-              }),
-            }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            answer = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          }
-        } catch (e) {
-          console.error('[AI] Gemini direct analysis failed:', e);
-        }
-      }
-
-      // 2. Fallback: proxy
-      if (!answer) {
-        const proxyUrl = this.getProxyUrl('/api/ai-chat');
-        if (proxyUrl) {
           const response = await fetch(proxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -415,11 +389,41 @@ ${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קו�
               history: []
             }),
           });
-          if (!response.ok) {
-            throw new Error(`Proxy error: ${response.status}`);
+          if (response.ok) {
+            const data = await response.json();
+            answer = data.answer || '';
           }
-          const data = await response.json();
-          answer = data.answer || '';
+        } catch (e) {
+          console.error('[AI] Proxy analysis failed:', e);
+        }
+      }
+
+      // 2. Fallback: Gemini direct
+      if (!answer) {
+        const geminiKey = this.config.apiKey || 
+          (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+          (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
+
+        if (geminiKey) {
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: analysisPrompt }] }],
+                  generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+                }),
+              }
+            );
+            if (response.ok) {
+              const data = await response.json();
+              answer = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            }
+          } catch (e) {
+            console.error('[AI] Gemini direct analysis failed:', e);
+          }
         }
       }
 
@@ -763,29 +767,30 @@ ${previousQuestionsSection}
       // Call the configured provider
       let chunkResult: GeneratedExercise[] | null = null;
 
-      // Get Gemini key from multiple sources
-      const geminiKey = this.config.apiKey || 
-        (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
-        (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
-
-      // 1. Primary: Try Gemini direct (works everywhere, no server needed)
-      if (geminiKey) {
-        console.log('🟢 Trying Gemini API direct (primary)...');
-        const savedApiKey = this.config.apiKey;
-        const savedModel = this.config.model;
-        this.config.apiKey = geminiKey;
-        this.config.model = 'gemini-2.0-flash';
-        chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
-        this.config.apiKey = savedApiKey;
-        this.config.model = savedModel;
+      // 1. Primary: Try proxy (Bedrock via server — cheapest option)
+      const proxyUrl = this.getProxyUrl('/api/ai-chat');
+      if (proxyUrl) {
+        console.log(`🟢 Trying AI Proxy (${proxyUrl.substring(0, 40)}...)...`);
+        chunkResult = await this.callProxyAPI(prompt, request.contentId, analysis);
       }
 
-      // 2. Fallback: Try proxy (local dev server or deployed proxy like Render.com)
+      // 2. Fallback: Try Gemini direct (if proxy unavailable)
       if (!chunkResult) {
-        const proxyUrl = this.getProxyUrl('/api/ai-chat');
-        if (proxyUrl) {
-          console.log(`🟡 Fallback: Trying AI Proxy (${proxyUrl.substring(0, 40)}...)...`);
-          chunkResult = await this.callProxyAPI(prompt, request.contentId, analysis);
+        const geminiKey = this.config.apiKey || 
+          (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY : null) ||
+          (() => { try { return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY; } catch { return null; } })();
+
+        if (geminiKey) {
+          console.log('🟡 Fallback: Trying Gemini API direct...');
+          const savedApiKey = this.config.apiKey;
+          const savedModel = this.config.model;
+          this.config.apiKey = geminiKey;
+          this.config.model = 'gemini-2.0-flash';
+          chunkResult = await this.callGeminiAPI(prompt, request.contentId, analysis);
+          this.config.apiKey = savedApiKey;
+          this.config.model = savedModel;
+        } else {
+          console.error('🟡 Fallback: No Gemini API key found');
         }
       }
 

@@ -46,13 +46,11 @@ export default function RootLayout() {
     }
 
     // Initialize AI processor based on provider
-    if (aiProvider === 'bedrock' && geminiApiKey) {
-      // Bedrock requires a server proxy. Use Gemini as primary, proxy as fallback.
-      console.log('[AI] initializeAIProcessor -> provider: gemini (bedrock needs proxy, Gemini used as primary)');
+    if (aiProvider === 'bedrock') {
+      // AWS Bedrock via server proxy (Render.com / local server)
+      console.log('[AI] initializeAIProcessor -> provider: bedrock (via server proxy)');
       initializeAIProcessor({
-        provider: 'gemini',
-        apiKey: geminiApiKey,
-        model: 'gemini-2.0-flash',
+        provider: 'bedrock',
       });
     } else if (aiProvider === 'gemini' && geminiApiKey) {
       // Use Gemini API for AI-powered exercise generation

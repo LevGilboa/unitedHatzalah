@@ -66,13 +66,9 @@ export default {
             eas: {
                 projectId: "d10248c4-1c0b-4d84-9360-cbf0071b20be"
             },
-            // AI API keys live on the server (Render.com / local server).
-            // Only non-secret config mapping:
+            // AI config — Bedrock via proxy, Gemini as fallback
             EXPO_PUBLIC_AI_PROVIDER: process.env.AI_PROVIDER || process.env.EXPO_PUBLIC_AI_PROVIDER,
-            EXPO_PUBLIC_GROQ_MODEL: process.env.GROQ_MODEL || process.env.EXPO_PUBLIC_GROQ_MODEL,
-            EXPO_PUBLIC_HUGGINGFACE_MODEL: process.env.HUGGINGFACE_MODEL || process.env.EXPO_PUBLIC_HUGGINGFACE_MODEL,
-            EXPO_PUBLIC_OLLAMA_ENDPOINT: process.env.OLLAMA_ENDPOINT || process.env.EXPO_PUBLIC_OLLAMA_ENDPOINT,
-            EXPO_PUBLIC_OLLAMA_MODEL: process.env.OLLAMA_MODEL || process.env.EXPO_PUBLIC_OLLAMA_MODEL,
+            EXPO_PUBLIC_GEMINI_API_KEY: process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY,
             EXPO_PUBLIC_PROXY_URL: process.env.PROXY_URL || process.env.EXPO_PUBLIC_PROXY_URL || "",
         }
     }
