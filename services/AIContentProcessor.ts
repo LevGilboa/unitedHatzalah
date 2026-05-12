@@ -738,19 +738,19 @@ ${forceNew ? `
 
       console.log(`[AI] Processing chunk ${i + 1}/${chunks.length} (${chunkContent.length} chars) -> requesting ${exercisesForChunk} exercises`);
 
-      const prompt = \`אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
+      const prompt = `אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
 
-חומר הלימוד (חלק ${i + 1} מתתוך ${chunks.length}):
-\${chunkContent}
+חומר הלימוד (חלק ${i + 1} מתוך ${chunks.length}):
+${chunkContent}
 
-נושא: \${request.subject}
-רמת קושי מועדפת: \${request.targetDifficulty}
-מספר תרגילים לחלק זה: \${exercisesForChunk}
-\${examplesSection}
-\${badExamplesSection}
-\${previousQuestionsSection}
+נושא: ${request.subject}
+רמת קושי מועדפת: ${request.targetDifficulty}
+מספר תרגילים לחלק זה: ${exercisesForChunk}
+${examplesSection}
+${badExamplesSection}
+${previousQuestionsSection}
 
-מזהה סשן: \${sessionId}-\${randomSeed}-\${i}
+מזהה סשן: ${sessionId}-${randomSeed}-${i}
 
 הנחיות קריטיות ליצירת התרגילים:
 1. **התמקד בתוכן הנוכחי**: צור שאלות *רק* על סמך הטקסט שמופיע בחלק זה. אל תמציא מידע.
@@ -758,7 +758,7 @@ ${forceNew ? `
 3. **גיוון**: השתמש בסוגי שאלות שונים.
 4. **פורמט פלט**: החזר אך ורק JSON תקני. הימנע משימוש במירכאות כפולות בתוך מחרוזות טקסט (השתמש בגרש בודד אם צריך).
 
-צור \${exercisesForChunk} תרגילים איכותיים ומקוריים בעברית.
+צור ${exercisesForChunk} תרגילים איכותיים ומקוריים בעברית.
 
 החזר JSON בפורמט הבא בלבד, ללא טקסט נוסף:
 
@@ -787,7 +787,7 @@ ${forceNew ? `
 - הקפד על JSON תקין לחלוטין.
 - 🔴 אזהרה קריטית 1 🔴: לעולם אל תשתמש במירכאות כפולות (") בתוך הטקסטים/הערכים (כגון בתוך השאלה או ההסבר)! אם אתה חייב לצטט, השתמש אך ורק בגרש בודד (')! לדוגמה: 'אברהם' ולא "אברהם".
 - 🔴 אזהרה קריטית 2 🔴: אל תעתיק את מסיחי הדעת לדוגמה כמו "מסיח דעת 1"! עליך לכתוב תשובות שגויות הגיוניות בעברית מתוך הטקסט.
-\`;
+`;
 
 
       // Call the configured provider
