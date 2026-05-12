@@ -12,7 +12,7 @@
     "web": "expo start --web",
     "build:web": "npx expo export -p web",
     "predeploy:gh": "npm run build:web",
-    "deploy:gh": "npm run predeploy:gh && gh-pages -d dist",
+    "deploy:gh": "npm run predeploy:gh && node -e \"require('fs').writeFileSync('dist/.nojekyll', '')\" && gh-pages -d dist -t true",
     "preview": "npx expo export -p web && npx serve dist",
     "server": "npm start --prefix server",
     "test": "jest --watchAll",
