@@ -1042,57 +1042,104 @@ ${previousQuestionsSection}
 
   /**
    * Try to extract exercises from malformed JSON by parsing individual exercise objects
+   * Uses a bracket-counting approach to extract { ... } objects even if the outer array is broken.
    */
   private extractExercisesFromMalformedJson(jsonString: string): any[] | null {
     try {
-      // Look for exercise objects using regex
-      const exerciseRegex = /\{\s*"type"\s*:\s*"[^"]*"\s*,\s*"question"\s*:\s*"[^"]*"(?:\s*,\s*"[^"]*"\s*:\s*[^,}]*)*\}/g;
-      const matches = jsonString.match(exerciseRegex);
+      const exercises = [];
+      let braceCount = 0;
+      let inString = false;
+      let objStart = -1;
 
-      if (matches && matches.length > 0) {
-        const exercises = [];
-        for (const match of matches) {
-          try {
-            // Try to parse each individual exercise
-            const exercise = JSON.parse(match);
-            if (exercise.type && exercise.question) {
-              exercises.push(exercise);
+      for (let i = 0; i < jsonString.length; i++) {
+        const char = jsonString[i];
+        const prevChar = i > 0 ? jsonString[i - 1] : '';
+
+        // Track if we are inside a string (to ignore braces inside strings)
+        if (char === '"' && prevChar !== '\\') {
+          inString = !inString;
+        }
+
+        if (!inString) {
+          if (char === '{') {
+            if (braceCount === 0) {
+              objStart = i; // Start of a root-level object
             }
-          } catch (e) {
-            // Skip malformed individual exercises
-            console.log('Skipping malformed exercise:', match.substring(0, 100));
+            braceCount++;
+          } else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0 && objStart !== -1) {
+              // We found a complete object!
+              const objStr = jsonString.substring(objStart, i + 1);
+              const exercise = this.parseSingleExercise(objStr);
+              if (exercise) exercises.push(exercise);
+              objStart = -1;
+            }
           }
         }
-
-        if (exercises.length > 0) {
-          return exercises;
-        }
       }
 
-      // Fallback: Try to find all question-answer pairs
-      const questionRegex = /"question"\s*:\s*"([^"]*)"/g;
-      const questions = [];
-      let match;
-      while ((match = questionRegex.exec(jsonString)) !== null) {
-        questions.push(match[1]);
+      // If the AI cut off mid-generation, the last object might be incomplete (braceCount > 0)
+      if (braceCount > 0 && objStart !== -1) {
+        let objStr = jsonString.substring(objStart);
+        if (inString) objStr += '"'; // Close string if cut off
+        
+        // Try to extract using regex as a last resort for the cut-off object
+        const exercise = this.parseSingleExercise(objStr, true);
+        if (exercise) exercises.push(exercise);
       }
 
-      if (questions.length > 0) {
-        // Create basic exercises from questions
-        return questions.map((question, index) => ({
-          type: 'multiple-choice',
-          question: question,
-          options: ['תשובה 1', 'תשובה 2', 'תשובה 3', 'תשובה 4'],
-          correctAnswer: 0,
-          explanation: 'תשובה שנוצרה אוטומטית',
-          difficulty: 'medium'
-        }));
+      if (exercises.length > 0) {
+        return exercises;
       }
-
     } catch (error) {
       console.error('Failed to extract exercises from malformed JSON:', error);
     }
+    return null;
+  }
 
+  /**
+   * Helper to parse a single exercise object string
+   */
+  private parseSingleExercise(objStr: string, isCutOff: boolean = false): any | null {
+    try {
+      let cleaned = this.cleanJsonString(objStr);
+      if (isCutOff) {
+        // Force close common structures
+        cleaned = cleaned.replace(/,\s*$/, '');
+        if (!cleaned.endsWith('}')) cleaned += '}';
+      }
+      const parsed = JSON.parse(cleaned);
+      if (parsed && parsed.question && parsed.options) {
+        return parsed;
+      }
+    } catch (e) {
+      // Manual regex fallback for this specific object if JSON.parse fails completely
+      const qMatch = objStr.match(/"question"\s*:\s*"([\s\S]*?)"/);
+      const optMatch = objStr.match(/"options"\s*:\s*\[([\s\S]*?)\]/);
+      const expMatch = objStr.match(/"explanation"\s*:\s*"([\s\S]*?)"/);
+
+      if (qMatch) {
+        let options = ['כן', 'לא'];
+        if (optMatch) {
+          const opts = [];
+          const oReg = /"([^"]+)"/g;
+          let o;
+          while ((o = oReg.exec(optMatch[1])) !== null) {
+            opts.push(o[1]);
+          }
+          if (opts.length > 0) options = opts;
+        }
+        return {
+          type: 'multiple-choice',
+          question: qMatch[1],
+          options: options,
+          correctAnswer: 0,
+          explanation: expMatch ? expMatch[1] : '',
+          difficulty: 'medium'
+        };
+      }
+    }
     return null;
   }
 
