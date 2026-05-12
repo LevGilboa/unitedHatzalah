@@ -79,7 +79,7 @@ app.post('/calls', async (req, res) => {
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 100;
-const MAX_REQUEST_CHARS = 50000;
+const MAX_REQUEST_CHARS = 500000;
 
 function checkRateLimit(ip) {
   const now = Date.now();
