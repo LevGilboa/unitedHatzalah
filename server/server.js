@@ -134,8 +134,18 @@ app.post('/api/ai-chat', async (req, res) => {
     // ─── Method 1: Bedrock Bearer Token (OpenAI-compatible API) ──────────
     if (bedrockApiKey) {
       try {
-        const baseUrl = process.env.BEDROCK_BASE_URL || `https://bedrock-mantle.${awsRegion}.api.aws/v1`;
-        console.log(`[Bedrock Proxy] Using Bearer Token API at ${baseUrl}`);
+        // Extract region from token to avoid "Credential should be scoped to a valid region"
+        let tokenRegion = awsRegion;
+        if (bedrockApiKey.startsWith('bedrock-api-key-')) {
+          const decoded = Buffer.from(bedrockApiKey.replace('bedrock-api-key-', ''), 'base64').toString();
+          const regionMatch = decoded.match(/%2F\d{8}%2F([^%]+)%2Fbedrock/);
+          if (regionMatch && regionMatch[1]) {
+            tokenRegion = regionMatch[1];
+          }
+        }
+
+        const baseUrl = process.env.BEDROCK_BASE_URL || `https://bedrock-mantle.${tokenRegion}.api.aws/v1`;
+        console.log(`[Bedrock Proxy] Using Bearer Token API at ${baseUrl} (Region: ${tokenRegion})`);
 
         const r = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
