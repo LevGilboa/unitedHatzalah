@@ -122,98 +122,133 @@ app.post('/api/ai-chat', async (req, res) => {
 
     console.log(`[Bedrock Proxy] Processing request: ${question.slice(0, 50)}...`);
 
+    const bedrockApiKey = process.env.BEDROCK_API_KEY;
     const awsKeyId = process.env.AWS_ACCESS_KEY_ID;
     const awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+    const awsSessionToken = process.env.AWS_SESSION_TOKEN;
     const awsRegion = process.env.AWS_REGION || "us-east-1";
     const bedrockModel = process.env.BEDROCK_MODEL || "amazon.nova-lite-v1:0";
 
-    if (!awsKeyId || !awsSecretKey) {
-      console.error('[Bedrock Proxy] ERROR: Missing AWS credentials in environment variables');
-      return res.status(500).json({ error: 'Missing AWS credentials on server' });
-    }
-
     let answer = null;
 
-    try {
-      console.log(`[Bedrock Proxy] Using model: ${bedrockModel} in ${awsRegion}`);
+    // ─── Method 1: Bedrock Bearer Token (OpenAI-compatible API) ──────────
+    if (bedrockApiKey) {
+      try {
+        const baseUrl = process.env.BEDROCK_BASE_URL || `https://bedrock-mantle.${awsRegion}.api.aws/v1`;
+        console.log(`[Bedrock Proxy] Using Bearer Token API at ${baseUrl}`);
 
-      const client = new BedrockRuntimeClient({
-        region: awsRegion,
-        credentials: {
-          accessKeyId: awsKeyId,
-          secretAccessKey: awsSecretKey
+        const r = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${bedrockApiKey}`
+          },
+          body: JSON.stringify({
+            model: bedrockModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages
+            ],
+            max_tokens: 4096,
+            temperature: 0.7
+          })
+        });
+
+        if (r.ok) {
+          const data = await r.json();
+          answer = data.choices?.[0]?.message?.content || null;
+          if (answer) console.log(`[Bedrock Proxy] ✅ Bearer Token success (${answer.length} chars)`);
+        } else {
+          const errText = await r.text();
+          console.error(`[Bedrock Proxy] Bearer Token error: ${r.status}`, errText.substring(0, 300));
         }
-      });
-
-      // Detect model type for correct payload format
-      const isNovaModel = bedrockModel.startsWith('amazon.nova');
-      const isClaudeModel = bedrockModel.startsWith('anthropic.');
-
-      let payload;
-      if (isNovaModel) {
-        // Amazon Nova format
-        payload = {
-          messages: messages.map(m => ({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: [{ text: m.content }]
-          })),
-          system: [{ text: systemPrompt }],
-          inferenceConfig: {
-            max_new_tokens: 4096,
-            temperature: 0.7,
-            top_p: 0.9
-          }
-        };
-      } else if (isClaudeModel) {
-        // Claude format
-        payload = {
-          anthropic_version: "bedrock-2023-05-31",
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: messages.filter(m => m.role !== 'system')
-        };
-      } else {
-        // Generic format
-        payload = {
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages
-          ],
-          max_tokens: 4096,
-          temperature: 0.7
-        };
+      } catch (e) {
+        console.error('[Bedrock Proxy] Bearer Token error:', e.message);
       }
-
-      const command = new InvokeModelCommand({
-        modelId: bedrockModel,
-        contentType: "application/json",
-        accept: "application/json",
-        body: JSON.stringify(payload)
-      });
-
-      const response = await client.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-      // Extract answer based on model type
-      if (isNovaModel) {
-        answer = responseBody.output?.message?.content?.[0]?.text || null;
-      } else if (isClaudeModel) {
-        answer = responseBody.content?.[0]?.text || null;
-      } else {
-        answer = responseBody.choices?.[0]?.message?.content ||
-                 responseBody.content?.[0]?.text || null;
-      }
-
-      if (answer) {
-        console.log(`[Bedrock Proxy] ✅ ${bedrockModel} success (${answer.length} chars)`);
-      } else {
-        console.error('[Bedrock Proxy] Empty response. Body:', JSON.stringify(responseBody).substring(0, 500));
-      }
-    } catch (bedrockErr) {
-      console.error('[Bedrock Proxy] Bedrock error:', bedrockErr.message);
     }
 
-    // Fallback: Gemini
+    // ─── Method 2: AWS SDK (permanent IAM credentials) ───────────────────
+    if (!answer && awsKeyId && awsSecretKey) {
+      try {
+        console.log(`[Bedrock Proxy] Using AWS SDK: ${bedrockModel} in ${awsRegion}`);
+
+        const credentials = {
+          accessKeyId: awsKeyId,
+          secretAccessKey: awsSecretKey,
+        };
+        if (awsSessionToken) credentials.sessionToken = awsSessionToken;
+
+        const client = new BedrockRuntimeClient({
+          region: awsRegion,
+          credentials
+        });
+
+        // Detect model type for correct payload format
+        const isNovaModel = bedrockModel.startsWith('amazon.nova');
+        const isClaudeModel = bedrockModel.startsWith('anthropic.');
+
+        let payload;
+        if (isNovaModel) {
+          payload = {
+            messages: messages.map(m => ({
+              role: m.role === 'assistant' ? 'assistant' : 'user',
+              content: [{ text: m.content }]
+            })),
+            system: [{ text: systemPrompt }],
+            inferenceConfig: {
+              max_new_tokens: 4096,
+              temperature: 0.7,
+              top_p: 0.9
+            }
+          };
+        } else if (isClaudeModel) {
+          payload = {
+            anthropic_version: "bedrock-2023-05-31",
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: messages.filter(m => m.role !== 'system')
+          };
+        } else {
+          payload = {
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages
+            ],
+            max_tokens: 4096,
+            temperature: 0.7
+          };
+        }
+
+        const command = new InvokeModelCommand({
+          modelId: bedrockModel,
+          contentType: "application/json",
+          accept: "application/json",
+          body: JSON.stringify(payload)
+        });
+
+        const response = await client.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+        if (isNovaModel) {
+          answer = responseBody.output?.message?.content?.[0]?.text || null;
+        } else if (isClaudeModel) {
+          answer = responseBody.content?.[0]?.text || null;
+        } else {
+          answer = responseBody.choices?.[0]?.message?.content ||
+                   responseBody.content?.[0]?.text || null;
+        }
+
+        if (answer) {
+          console.log(`[Bedrock Proxy] ✅ AWS SDK success (${answer.length} chars)`);
+        } else {
+          console.error('[Bedrock Proxy] Empty SDK response:', JSON.stringify(responseBody).substring(0, 500));
+        }
+      } catch (bedrockErr) {
+        console.error('[Bedrock Proxy] AWS SDK error:', bedrockErr.message);
+      }
+    }
+
+    // ─── Method 3: Gemini fallback ───────────────────────────────────────
     if (!answer) {
       const geminiKey = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
       if (geminiKey) {
