@@ -1026,7 +1026,15 @@ ${previousQuestionsSection}
     // 2. Remove non-printable control characters
     cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
 
-    // 3. Remove trailing commas (e.g., [1, 2, ])
+    // 3. Fix unescaped double quotes inside string values
+    // Looks for values that start with a quote and end with a quote followed by , ] or }
+    cleaned = cleaned.replace(/(:\s*"|\[\s*"|,\s*")([\s\S]*?)("\s*,|"\s*\]|"\s*\})/g, (match, start, inner, end) => {
+      // Replace any double quotes inside the string value with single quotes
+      const fixedInner = inner.replace(/\\"/g, "'").replace(/"/g, "'");
+      return start + fixedInner + end;
+    });
+
+    // 4. Remove trailing commas (e.g., [1, 2, ])
     cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
 
     return cleaned;
