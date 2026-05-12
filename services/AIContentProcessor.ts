@@ -152,6 +152,31 @@ ${truncatedContent}
     return null;
   }
 
+  /**
+   * Safely parses JSON returned by an AI model.
+   * Handles markdown wrappers, unescaped newlines, and trailing commas.
+   */
+  private parseAIJson(text: string): any {
+    try {
+      // Extract from markdown code blocks if present
+      const jsonMatch = text.match(/```(?:json)?\n?([\s\S]*?)```/) || [null, text];
+      let jsonStr = jsonMatch[1].trim();
+
+      // Replace actual newlines/tabs with spaces to prevent "Bad control character in string literal"
+      // JSON parser doesn't care if the entire object is on one line.
+      jsonStr = jsonStr.replace(/\n/g, ' ').replace(/\r/g, '').replace(/\t/g, ' ');
+
+      // Remove trailing commas
+      jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
+
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('[AI] Failed to parse JSON:', e);
+      console.log('Original string:', text.substring(0, 500));
+      throw e;
+    }
+  }
+
   private extractTitleAndSubjectLocally(content: string): { title: string; subject: string } {
     // Extract first meaningful sentence as title
     const sentences = content.split(/[.!?\n]/).filter(s => s.trim().length > 5);
@@ -242,8 +267,11 @@ ${truncatedContent}
           if (response.ok) {
             const result = await response.json();
             const text = result.answer || '';
-            const jsonMatch = text.match(/\[[\s\S]*\]/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
+            try {
+              return this.parseAIJson(text);
+            } catch (parseErr) {
+              console.error('Failed to parse proxy response:', parseErr);
+            }
           }
         } catch (e) {
           console.error('Proxy course plan failed:', e);
@@ -431,11 +459,7 @@ ${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קו�
         throw new Error('No AI response for content analysis');
       }
       
-      // Extract JSON from response
-      const jsonMatch = answer.match(/```json\n([\s\S]*?)\n```/) || answer.match(/```([\s\S]*?)```/) || [null, answer];
-      const jsonStr = jsonMatch[1].trim();
-      
-      const parsedData = JSON.parse(jsonStr);
+      const parsedData = this.parseAIJson(answer);
       
       return {
         summary: parsedData.summary || 'לא ניתן היה לייצר סיכום.',
@@ -996,10 +1020,13 @@ ${previousQuestionsSection}
    * Clean JSON string by removing control characters and fixing common issues
    */
   private cleanJsonString(jsonString: string): string {
-    // 1. Remove non-printable control characters
-    let cleaned = jsonString.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // 1. Replace actual newlines/tabs with spaces to prevent "Bad control character in string literal"
+    let cleaned = jsonString.replace(/\n/g, ' ').replace(/\r/g, '').replace(/\t/g, ' ');
 
-    // 2. Remove trailing commas (e.g., [1, 2, ])
+    // 2. Remove non-printable control characters
+    cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
+
+    // 3. Remove trailing commas (e.g., [1, 2, ])
     cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
 
     return cleaned;
