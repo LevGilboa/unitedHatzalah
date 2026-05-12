@@ -13,14 +13,29 @@ import {
     CourseGenerationRequest,
     GeneratedExercise,
 } from '@/types/ai-learning';
+
+// Define the shape of the response expected from generateCourse
+type GenerationResult = {
+    success: boolean;
+    course?: CompleteCourse;
+    error?: string;
+};
 // import { CourseGeneratorService } from '@/services/CourseGenerator'; // Removed legacy service
+// Define the CourseGenerator interface matching the old service methods
+type CourseGenerator = {
+  generateCourse: (request: any) => Promise<GenerationResult>;
+  updatePhaseCompletion: (course: any, phaseOrder: any, score: any) => any;
+  regeneratePhase: (course: any, phaseOrder: any) => any;
+};
 
 // Create instance only when needed
 // The legacy CourseGeneratorService was removed. This stub throws an error to indicate the change.
 // Legacy CourseGeneratorService is removed. Provide a stub with the expected methods that throw errors.
-const getCourseGenerator = () => ({
-  async generateCourse(_: any) {
-    throw new Error('Course generation is no longer supported. Use per-exercise generation via AIContentProcessor.');
+// Legacy CourseGeneratorService removed. Provide a stub that matches the original interface.
+const getCourseGenerator = (): CourseGenerator => ({
+  async generateCourse(_: any): Promise<GenerationResult> {
+    // Legacy full-course generation is not supported in the per‑exercise model.
+    throw new Error('Course generation is no longer supported. Use per‑exercise generation via AIContentProcessor.');
   },
   updatePhaseCompletion(_: any, __: any, ___: any) {
     throw new Error('Phase update is no longer supported.');
@@ -29,8 +44,6 @@ const getCourseGenerator = () => ({
     throw new Error('Regenerate phase is no longer supported.');
   },
 });
-// Legacy stub removed; no runtime error.
-};
 
 interface CompleteCourseStore {
     // State
@@ -101,7 +114,7 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
                         });
                     }, 1500);
 
-                    const response = await getCourseGenerator().generateCourse(request);
+                    const response: GenerationResult = await getCourseGenerator().generateCourse(request);
 
                     clearInterval(progressInterval);
 

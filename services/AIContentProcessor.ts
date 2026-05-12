@@ -479,12 +479,7 @@ ${chunk}
     return { isCorrect, feedback: isCorrect ? 'תשובה נכונה!' : `התשובה הנכונה: ${correctAnswer}` };
 
 
-    // Simple fallback: exact/partial match
-    const norm = (s: string) => s.trim().toLowerCase().replace(/['"]/g, '');
-    const isCorrect =
-      norm(userAnswer).includes(norm(correctAnswer)) ||
-      norm(correctAnswer).includes(norm(userAnswer));
-    return { isCorrect, feedback: isCorrect ? 'תשובה נכונה!' : `התשובה הנכונה: ${correctAnswer}` };
+    // Duplicate fallback removed – original norm implementation retained above
   }
 
   // ── Feedback (unchanged contract) ──
