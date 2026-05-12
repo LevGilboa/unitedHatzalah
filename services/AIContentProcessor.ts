@@ -154,7 +154,7 @@ ${truncatedContent}
 
   /**
    * Safely parses JSON returned by an AI model.
-   * Handles markdown wrappers, unescaped newlines, and trailing commas.
+   * Handles markdown wrappers, unescaped newlines, unescaped quotes, and trailing commas.
    */
   private parseAIJson(text: string): any {
     try {
@@ -162,12 +162,8 @@ ${truncatedContent}
       const jsonMatch = text.match(/```(?:json)?\n?([\s\S]*?)```/) || [null, text];
       let jsonStr = jsonMatch[1].trim();
 
-      // Replace actual newlines/tabs with spaces to prevent "Bad control character in string literal"
-      // JSON parser doesn't care if the entire object is on one line.
-      jsonStr = jsonStr.replace(/\n/g, ' ').replace(/\r/g, '').replace(/\t/g, ' ');
-
-      // Remove trailing commas
-      jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
+      // Use cleanJsonString to fix unescaped quotes (like in התנ"ך), control chars, and trailing commas
+      jsonStr = this.cleanJsonString(jsonStr);
 
       return JSON.parse(jsonStr);
     } catch (e) {
@@ -400,7 +396,9 @@ ${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קו�
   "topics": ["נושא מרכזי 1", "נושא מרכזי 2", "נושא מרכזי 3", "נושא מרכזי 4", "נושא מרכזי 5"]
 }
 \`\`\`
-חשוב: החזר רק את ה-JSON, ללא שום טקסט מקדים או עוקב.`;
+חשוב מאוד:
+- החזר רק את ה-JSON, ללא שום טקסט מקדים או עוקב.
+- 🔴 אזהרה קריטית 🔴: לעולם אל תשתמש במירכאות כפולות (") בתוך הטקסטים/הערכים (כגון בתוך הסיכום או הנושאים)! אם אתה חייב לצטט, השתמש אך ורק בגרש בודד (')! לדוגמה: 'אברהם' ולא "אברהם".`;
 
       let answer = '';
 
@@ -441,7 +439,7 @@ ${content.substring(0, 15000)} ${content.length > 15000 ? '... (הטקסט קו�
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ parts: [{ text: analysisPrompt }] }],
-                  generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+                  generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
                 }),
               }
             );
