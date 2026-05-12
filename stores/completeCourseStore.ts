@@ -235,7 +235,7 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
                     const failedExercises = course.failedExercises || [];
                     
                     // Don't add if already exists
-                    if (failedExercises.some(ex => ex.id === exercise.id)) {
+                    if (failedExercises.some(ex => ex?.id === exercise.id)) {
                         return state;
                     }
 

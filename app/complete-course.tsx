@@ -50,8 +50,8 @@ async function askAI(
 סיכום הקורס:
 ${courseSummary}
 
-תוכן הקורס (חלקי עד 40000 תווים):
-${courseContent.slice(0, 40000)}
+תוכן הקורס (חלקי עד 10000 תווים):
+${courseContent.slice(0, 10000)}
 
 כללים קריטיים:
 - ענה תמיד בעברית בלבד.
@@ -295,15 +295,25 @@ export default function CompleteCourseView() {
                     <Text style={styles.summaryText} numberOfLines={3}>
                         {course.summary}
                     </Text>
-                    {/* Read More Button */}
-                    <TouchableOpacity
-                        style={styles.readMoreButton}
-                        onPress={() => setSummaryModalVisible(true)}
-                        activeOpacity={0.8}
-                    >
-                        <Text style={styles.readMoreText}>מיקרו-למידה ⚡</Text>
-                        <Ionicons name="play-circle" size={16} color={Colors.purple} />
-                    </TouchableOpacity>
+                    {/* Action Buttons */}
+                    <View style={styles.summaryActionsContainer}>
+                        <TouchableOpacity
+                            style={styles.readMoreButton}
+                            onPress={() => setSummaryModalVisible(true)}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.readMoreText}>מיקרו-lמידה ⚡</Text>
+                            <Ionicons name="play-circle" size={16} color={Colors.purple} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.readMoreButton}
+                            onPress={() => router.push({ pathname: '/course-summary', params: { courseId: course.id } })}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.readMoreText}>סיכום מלא</Text>
+                            <Ionicons name="document-text-outline" size={16} color={Colors.purple} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
 
@@ -736,11 +746,16 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         textAlign: 'right',
     },
+    summaryActionsContainer: {
+        flexDirection: 'row-reverse',
+        justifyContent: 'flex-start',
+        gap: 8,
+        alignSelf: 'flex-end',
+        marginTop: 8,
+    },
     readMoreButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        alignSelf: 'flex-end',
-        marginTop: 8,
         paddingHorizontal: 12,
         paddingVertical: 5,
         backgroundColor: Colors.backgroundOverlay,

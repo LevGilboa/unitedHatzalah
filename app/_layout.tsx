@@ -47,8 +47,8 @@ export default function RootLayout() {
 
     // Initialize AI processor based on provider
     if (aiProvider === 'bedrock') {
-      // Use AWS Bedrock (credentials are securely handled by Vercel serverless functions /api/ai-chat)
-      console.log('[AI] initializeAIProcessor -> provider: bedrock (via Vercel Proxy)');
+      // AWS Bedrock via server proxy (Render.com / local server)
+      console.log('[AI] initializeAIProcessor -> provider: bedrock (via server proxy)');
       initializeAIProcessor({
         provider: 'bedrock',
       });

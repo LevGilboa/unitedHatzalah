@@ -72,9 +72,9 @@ export default function CompleteCoursePhase() {
                 
                 if (loadedPhase && phaseNum === 4 && course.failedExercises && course.failedExercises.length > 0) {
                     // SRS logic: mix in up to 5 failed exercises
-                    const failedExs = [...course.failedExercises].sort(() => Math.random() - 0.5).slice(0, 5);
-                    const failedIds = failedExs.map(e => e.id);
-                    const originals = loadedPhase.exercises.filter(e => !failedIds.includes(e.id));
+                    const failedExs = [...course.failedExercises].filter(e => e).sort(() => Math.random() - 0.5).slice(0, 5);
+                    const failedIds = failedExs.map(e => e?.id);
+                    const originals = loadedPhase.exercises.filter(e => e && !failedIds.includes(e.id));
                     
                     const mixedExercises = [...failedExs, ...originals].slice(0, Math.max(10, loadedPhase.exercises.length));
                     const randomizedExercises = mixedExercises.sort(() => Math.random() - 0.5);
@@ -119,7 +119,7 @@ export default function CompleteCoursePhase() {
             
             // SRS Tracking: Save failed exercises for Spaced Repetition (Phase 4)
             if (courseId && phase) {
-                const completedExercise = phase.exercises.find(e => e.id === exerciseId);
+                const completedExercise = phase.exercises.find(e => e?.id === exerciseId);
                 if (completedExercise) {
                     addFailedExercise(courseId, completedExercise);
                 }
@@ -131,7 +131,7 @@ export default function CompleteCoursePhase() {
             const nextIndex = currentExerciseIndex + 1;
             if (nextIndex < phase.exercises.length) {
                 const remaining = [...phase.exercises];
-                const currentDiffScore = getDiffScore(remaining[currentExerciseIndex].difficulty);
+                const currentDiffScore = getDiffScore(remaining[currentExerciseIndex]?.difficulty ?? 'medium');
                 const targetDiffScore = isCorrect ? Math.min(3, currentDiffScore + 1) : Math.max(0, currentDiffScore - 1);
                 
                 let bestMatchIdx = nextIndex;
@@ -233,9 +233,9 @@ export default function CompleteCoursePhase() {
                 const updatedPhase = course.phases.find(p => p.order === phase.order);
                 
                 if (updatedPhase && updatedPhase.order === 4 && course.failedExercises && course.failedExercises.length > 0) {
-                    const failedExs = [...course.failedExercises].sort(() => Math.random() - 0.5).slice(0, 5);
-                    const failedIds = failedExs.map(e => e.id);
-                    const originals = updatedPhase.exercises.filter(e => !failedIds.includes(e.id));
+                    const failedExs = [...course.failedExercises].filter(e => e).sort(() => Math.random() - 0.5).slice(0, 5);
+                    const failedIds = failedExs.map(e => e?.id);
+                    const originals = updatedPhase.exercises.filter(e => e && !failedIds.includes(e.id));
                     
                     const mixedExercises = [...failedExs, ...originals].slice(0, Math.max(10, updatedPhase.exercises.length));
                     
