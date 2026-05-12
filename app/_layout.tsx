@@ -31,50 +31,24 @@ export default function RootLayout() {
     // Trim and remove any surrounding quotes that might have been accidentally added
     const aiProvider = rawProvider.trim().replace(/^["']|["']$/g, '').toLowerCase();
 
-    const geminiApiKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY ?? 
-                        (process.env as any).GEMINI_API_KEY ?? 
-                        (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-
     // Debug: Log what we got from environment
     console.log('[AI Config Debug] Raw Provider:', `"${rawProvider}"`);
     console.log('[AI Config Debug] Clean Provider:', `"${aiProvider}"`);
-    console.log('[AI Config Debug] Gemini Key:', geminiApiKey ? `${geminiApiKey.substring(0, 10)}...` : 'NOT SET');
 
-    // Make sure fallback keys are available in process.env for AIContentProcessor
-    if (geminiApiKey) {
-      (process.env as any).EXPO_PUBLIC_GEMINI_API_KEY = geminiApiKey;
-    }
-
-    // Initialize AI processor based on provider
-    if (aiProvider === 'bedrock') {
+    // Initialize AI processor
+    if (aiProvider === 'bedrock' || !aiProvider) {
       // AWS Bedrock via server proxy (Render.com / local server)
       console.log('[AI] initializeAIProcessor -> provider: bedrock (via server proxy)');
       initializeAIProcessor({
         provider: 'bedrock',
       });
-    } else if (aiProvider === 'gemini' && geminiApiKey) {
-      // Use Gemini API for AI-powered exercise generation
-      console.log('[AI] initializeAIProcessor -> provider: gemini');
-      initializeAIProcessor({
-        provider: 'gemini',
-        apiKey: geminiApiKey,
-        model: 'gemini-2.0-flash',
-      });
-    } else if (geminiApiKey) {
-      // Default to Gemini if key is provided (even without explicit provider)
-      console.log('[AI] initializeAIProcessor -> provider: gemini (auto-detected)');
-      initializeAIProcessor({
-        provider: 'gemini',
-        apiKey: geminiApiKey,
-        model: 'gemini-2.0-flash',
-      });
     } else {
-      // Fallback to local generation if no API key
-      console.log('[AI] initializeAIProcessor -> provider: local (no API key)');
+      // Fallback to local generation
+      console.log('[AI] initializeAIProcessor -> provider: local');
       initializeAIProcessor({
         provider: 'local',
       });
-      console.warn('No AI provider configured - using basic local generation');
+      console.warn('Using basic local generation');
     }
 
     const callsRef = collection(db, 'calls');

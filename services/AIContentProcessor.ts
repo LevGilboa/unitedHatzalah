@@ -13,7 +13,7 @@ import Constants from 'expo-constants';
 //  Config
 // ─────────────────────────────────────────────
 interface AIConfig {
-  provider: 'bedrock' | 'gemini' | 'local';
+  provider: 'bedrock' | 'local';
   apiKey?: string;
   model?: string;
 }
@@ -45,12 +45,12 @@ function extractJson(text: string): any | null {
   // 1. Code-fence block
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fence) {
-    try { return JSON.parse(fence[1].trim()); } catch {}
+    try { return JSON.parse(fence[1].trim()); } catch { }
   }
   // 2. First {...} block
   const brace = text.match(/\{[\s\S]*\}/);
   if (brace) {
-    try { return JSON.parse(brace[0]); } catch {}
+    try { return JSON.parse(brace[0]); } catch { }
   }
   // 3. Clean and retry
   const cleaned = text
@@ -61,7 +61,7 @@ function extractJson(text: string): any | null {
     .replace(/,\s*([\]}])/g, '$1');               // trailing commas
   const brace2 = cleaned.match(/\{[\s\S]*\}/);
   if (brace2) {
-    try { return JSON.parse(brace2[0]); } catch {}
+    try { return JSON.parse(brace2[0]); } catch { }
   }
   return null;
 }
@@ -126,19 +126,20 @@ class AIContentProcessor {
     if (isLocal) return `http://localhost:3000${path}`;
 
     const proxyUrl =
+      (typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_PROXY_URL : null) ||
       Constants.expoConfig?.extra?.EXPO_PUBLIC_PROXY_URL || '';
     return proxyUrl ? `${proxyUrl}${path}` : '';
   }
 
-  private getGeminiKey(): string | null {
+  private getApiKey(): string | null {
     return (
       this.config.apiKey ||
       (typeof process !== 'undefined'
-        ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY
+        ? (process.env?.EXPO_PUBLIC_AI_API_KEY || process.env?.EXPO_PUBLIC_GEMINI_API_KEY)
         : null) ||
       (() => {
         try {
-          return Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
+          return Constants.expoConfig?.extra?.EXPO_PUBLIC_AI_API_KEY || Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY;
         } catch {
           return null;
         }
@@ -151,15 +152,27 @@ class AIContentProcessor {
   private async callProxy(prompt: string): Promise<string | null> {
     const url = this.getProxyUrl('/api/ai-chat');
     if (!url) return null;
+
+    const apiKey = this.getApiKey();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const defaultBedrockModel = 'anthropic.claude-3-sonnet-20240229-v1:0';
+    const model = this.config.model || (this.config.provider === 'bedrock' ? defaultBedrockModel : undefined);
+
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           question: prompt,
           systemPrompt:
             'אתה מורה שיוצר שאלות לימוד בעברית. החזר JSON בלבד, ללא הסברים נוספים.',
           history: [],
+          provider: this.config.provider,
+          model: model,
         }),
       });
       if (!res.ok) {
@@ -170,31 +183,6 @@ class AIContentProcessor {
       return data.answer || null;
     } catch (e) {
       console.warn('[AI] Proxy call failed:', e);
-      return null;
-    }
-  }
-
-  // ── Core: call Gemini directly ──
-  private async callGemini(prompt: string): Promise<string | null> {
-    const key = this.getGeminiKey();
-    if (!key) return null;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.5, maxOutputTokens: 800 },
-          }),
-        }
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-    } catch (e) {
-      console.warn('[AI] Gemini call failed:', e);
       return null;
     }
   }
@@ -210,7 +198,7 @@ class AIContentProcessor {
   ): Promise<GeneratedExercise | null> {
 
     const isMultiChoice = exerciseType === 'multiple-choice';
-    const isTrueFalse   = exerciseType === 'true-false';
+    const isTrueFalse = exerciseType === 'true-false';
 
     let prompt: string;
 
@@ -226,7 +214,7 @@ ${chunk}
 כאשר correctAnswer הוא 0 לנכון ו-1 ללא-נכון.
 אל תשתמש במרכאות כפולות בתוך הטקסט — השתמש בגרשיים בודדים.`;
     } else if (isMultiChoice) {
-     prompt = `קרא את הקטע הבא ויצור שאלת רב-ברירה אחת בעברית.
+      prompt = `קרא את הקטע הבא ויצור שאלת רב-ברירה אחת בעברית.
 
 קטע:
 ${chunk}
@@ -253,9 +241,8 @@ ${chunk}
 אל תשתמש במרכאות כפולות בתוך הטקסטים.`;
     }
 
-    // Try proxy first, then Gemini
+    // Try proxy
     let raw = await this.callProxy(prompt);
-    if (!raw) raw = await this.callGemini(prompt);
     if (!raw) return null;
 
     const parsed = extractJson(raw);
@@ -330,9 +317,9 @@ ${chunk}
 
     // Build individual exercise tasks
     const tasks = Array.from({ length: numberOfExercises }, (_, i) => {
-      const chunk     = pickChunk(chunks, i);
+      const chunk = pickChunk(chunks, i);
       const difficulty = difficulties[i % difficulties.length];
-      const type       = types[i % types.length];
+      const type = types[i % types.length];
       return { chunk, difficulty, type, index: i };
     });
 
@@ -460,7 +447,7 @@ ${chunk}
 האם תשובת המשתמש נכונה מבחינה מהותית? ענה בJSON:
 {"isCorrect":true,"feedback":"הסבר קצר"}`;
 
-    const raw = await this.callProxy(prompt) ?? await this.callGemini(prompt);
+    const raw = await this.callProxy(prompt);
     if (raw) {
       const parsed = extractJson(raw);
       if (
@@ -507,11 +494,7 @@ export function getAIProcessor(): AIContentProcessor {
     const provider = (typeof process !== 'undefined'
       ? process.env?.EXPO_PUBLIC_AI_PROVIDER
       : null) as AIConfig['provider'] ?? 'bedrock';
-    const apiKey =
-      (typeof process !== 'undefined'
-        ? process.env?.EXPO_PUBLIC_GEMINI_API_KEY
-        : null) ?? undefined;
-    processorInstance = new AIContentProcessor({ provider, apiKey });
+    processorInstance = new AIContentProcessor({ provider });
   }
   return processorInstance;
 }

@@ -119,16 +119,17 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
                     clearInterval(progressInterval);
 
                     if (response.success && response.course) {
+                        const newCourse = response.course;
                         set(state => ({
-                            completeCourses: [...state.completeCourses, response.course],
-                            currentCompleteCourse: response.course,
+                            completeCourses: [...state.completeCourses, newCourse],
+                            currentCompleteCourse: newCourse,
                             generationProgress: 100,
                             generationMessage: '✅ הקורס נוצר בהצלחה!',
                             isGenerating: false,
                         }));
 
-                        console.log('✅ Complete course added to store:', response.course.title);
-                        return response.course;
+                        console.log('✅ Complete course added to store:', newCourse.title);
+                        return newCourse;
                     } else {
                         throw new Error(response.error || 'Failed to generate course');
                     }

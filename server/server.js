@@ -259,43 +259,7 @@ app.post('/api/ai-chat', async (req, res) => {
       }
     }
 
-    // ─── Method 3: Gemini fallback ───────────────────────────────────────
-    if (!answer) {
-      const geminiKey = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-      if (geminiKey) {
-        try {
-          console.log('[Bedrock Proxy] ⚠️ Falling back to Gemini...');
-          const geminiContents = messages
-            .filter(m => m.role !== 'system')
-            .map((m, i) => ({
-              role: m.role === 'assistant' ? 'model' : 'user',
-              parts: [{ text: i === 0 ? `${systemPrompt}\n\n${m.content}` : m.content }],
-            }));
-
-          const r = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: geminiContents,
-                generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
-              }),
-            }
-          );
-          if (r.ok) {
-            const data = await r.json();
-            answer = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-            if (answer) console.log(`[Bedrock Proxy] ✅ Gemini fallback success (${answer.length} chars)`);
-          } else {
-            console.error('[Bedrock Proxy] Gemini error:', r.status, await r.text());
-          }
-        } catch (geminiErr) {
-          console.error('[Bedrock Proxy] Gemini fallback error:', geminiErr.message);
-        }
-      }
-    }
-
+    // ─── Method 3 removed (No Gemini Fallback) ───────────────────────────
     if (!answer) {
       return res.status(502).json({ error: 'Empty response from all AI providers' });
     }
