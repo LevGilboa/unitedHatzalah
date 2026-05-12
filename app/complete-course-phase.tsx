@@ -131,7 +131,7 @@ export default function CompleteCoursePhase() {
             const nextIndex = currentExerciseIndex + 1;
             if (nextIndex < phase.exercises.length) {
                 const remaining = [...phase.exercises];
-                const currentDiffScore = getDiffScore(remaining[currentExerciseIndex].difficulty);
+                const currentDiffScore = getDiffScore(remaining[currentExerciseIndex]?.difficulty ?? 'medium');
                 const targetDiffScore = isCorrect ? Math.min(3, currentDiffScore + 1) : Math.max(0, currentDiffScore - 1);
                 
                 let bestMatchIdx = nextIndex;
