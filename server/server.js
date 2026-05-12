@@ -34,8 +34,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware to parse JSON request bodies
-app.use(express.json());
+// Middleware to parse JSON request bodies (increased limit to 50mb for large files)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check endpoint (used by Render.com to verify service is alive)
 app.get('/health', (req, res) => {
