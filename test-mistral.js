@@ -1,69 +1,57 @@
 const fetch = require('node-fetch');
-require('dotenv').config();
 
-async function testBedrock() {
-  const prompt = `אתה מורה מומחה שיוצר תרגילים מחומר לימוד.
+async function testSingleQuestion() {
+  const chunk = `פרשת עקידת יצחק (בראשית כב) היא פרק מכונן בתולדות עם ישראל. 
+הפרק מתאר את ניסיון אברהם שנצטווה להקריב את בנו יחידו יצחק. 
+מטרת הניסיון היא הוצאת הכוח הפוטנציאלי אל הפועל לפי הרמב"ן.
+העקידה מהווה יסוד לזכות האבות וסמל לעמידה בניסיון.`;
 
-חומר הלימוד (חלק 1 מתוך 1):
-פרשת עקידת יצחק (בראשית כב) היא פרק מכונן בתולדות עם ישראל, המהווה יסוד לזכות האבות וסמל לעמידה בניסיון בנכונות מוחלטת. הפרק נחקר כאחד היסודות הרוחניים והאמוניים של עם ישראל, ונתון במרכז התפילה היומית. העקידה מתארת את מעמדו הנבדל של אברהם, אשר נעמד בניסיון קשה לבבי של קרבת בנו יחידו, יצחק. מטרת הניסיון זוכה לחשיבות מרכזית: הפרשנים מציעים תאוריות שונות, החל בהוצאת הכוח הפוטנציאלי אל הפועל (רמב"ן), החינוך והעצמת המידות (מדרש בראשית רבה).
+  const prompt = `קרא את הקטע הבא ויצור שאלת רב-ברירה אחת בעברית.
 
-נושא: יהדות
-רמת קושי מועדפת: medium
-מספר תרגילים לחלק זה: 2
+קטע:
+${chunk}
 
-הנחיות קריטיות ליצירת התרגילים:
-1. **התמקד בתוכן הנוכחי**: צור שאלות *רק* על סמך הטקסט שמופיע בחלק זה. אל תמציא מידע.
-2. **מניעת חזרות**: וודא שכל שאלה בודקת פרט מידע שונה.
-3. **גיוון**: השתמש בסוגי שאלות שונים.
-4. **פורמט פלט**: החזר אך ורק JSON תקני. הימנע משימוש במירכאות כפולות בתוך מחרוזות טקסט (השתמש בגרש בודד אם צריך).
+החזר JSON בלבד:
+{"question":"שאלה","options":["תשובה נכונה","טעות א","טעות ב","טעות ג"],"correctAnswer":0,"explanation":"הסבר"}
 
-צור 2 תרגילים איכותיים ומקוריים בעברית.
+חוקים:
+- options[0] תמיד התשובה הנכונה
+- כתוב תשובות שגויות הגיוניות על סמך הטקסט
+- אל תשתמש במרכאות כפולות בתוך הטקסטים`;
 
-החזר JSON בפורמט הבא בלבד, ללא טקסט נוסף:
+  console.log('Sending single-question request...');
+  const start = Date.now();
 
-\`\`\`json
-{
-  "exercises": [
-    {
-      "type": "multiple-choice",
-      "question": "שאלה אמיתית בעברית על התוכן שקראת",
-      "options": ["התשובה הנכונה והמפורטת", "מסיח דעת הגיוני 1", "מסיח דעת הגיוני 2", "מסיח דעת הגיוני 3"],
-      "correctAnswer": 0,
-      "explanation": "הסבר מפורט למה התשובה הראשונה נכונה...",
-      "difficulty": "medium",
-      "topic": "נושא מהתוכן",
-      "keywords": ["מילת מפתח 1"]
+  const res = await fetch('https://unitedhatzalah.onrender.com/api/ai-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question: prompt,
+      systemPrompt: 'אתה מורה שיוצר שאלות לימוד בעברית. החזר JSON בלבד, ללא הסברים נוספים.',
+      history: []
+    }),
+  });
+
+  const elapsed = Date.now() - start;
+  const data = await res.json();
+  
+  console.log(`Status: ${res.status} (${elapsed}ms)`);
+  console.log('Raw answer:', data.answer);
+  
+  // Try to parse JSON
+  const jsonMatch = data.answer?.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      console.log('\n✅ Parsed successfully:');
+      console.log('  Question:', parsed.question);
+      console.log('  Options:', parsed.options);
+      console.log('  Correct:', parsed.options?.[parsed.correctAnswer]);
+      console.log('  Explanation:', parsed.explanation);
+    } catch(e) {
+      console.log('❌ Parse failed:', e.message);
     }
-  ]
-}
-\`\`\`
-
-חשוב מאוד:
-- שדה type חייב להיות אחד מאלה בלבד: "multiple-choice", "true-false", "fill-blank", "short-answer", "scenario".
-- עבור "scenario", ה-question צריך להיות תרחיש רפואי או משחקי תפקידים מפורט שמצריך מהתלמיד תשובה חופשית. אל תספק options. מצופה תשובה חופשית לתשובה הנכונה.
-- correctAnswer חייב להיות 0 או 1 עבור true-false.
-- options חייב להיות ["נכון", "לא נכון"] עבור true-false.
-- הקפד על JSON תקין לחלוטין.
-- 🔴 אזהרה קריטית 1 🔴: לעולם אל תשתמש במירכאות כפולות (") בתוך הטקסטים/הערכים (כגון בתוך השאלה או ההסבר)! אם אתה חייב לצטט, השתמש אך ורק בגרש בודד (')! לדוגמה: 'אברהם' ולא "אברהם".
-- 🔴 אזהרה קריטית 2 🔴: אל תעתיק את מסיחי הדעת לדוגמה כמו "מסיח דעת 1"! עליך לכתוב תשובות שגויות הגיוניות בעברית מתוך הטקסט.
-`;
-
-  try {
-    const response = await fetch('https://unitedhatzalah.onrender.com/api/ai-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: prompt,
-        systemPrompt: 'אתה מורה מומחה שעוזר ליצירת תרגילים חינוכיים בעברית. תמיד החזר JSON תקין בלבד.',
-        history: []
-      }),
-    });
-
-    const data = await response.json();
-    console.log(JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error("Error:", e);
   }
 }
 
-testBedrock();
+testSingleQuestion();

@@ -226,18 +226,20 @@ ${chunk}
 כאשר correctAnswer הוא 0 לנכון ו-1 ללא-נכון.
 אל תשתמש במרכאות כפולות בתוך הטקסט — השתמש בגרשיים בודדים.`;
     } else if (isMultiChoice) {
-      prompt = `קרא את הקטע הבא ויצור שאלת רב-ברירה אחת בעברית.
+     prompt = `קרא את הקטע הבא ויצור שאלת רב-ברירה אחת בעברית.
 
 קטע:
 ${chunk}
 
 החזר JSON בלבד:
-{"question":"שאלה","options":["תשובה נכונה","טעות א","טעות ב","טעות ג"],"correctAnswer":0,"explanation":"הסבר"}
+{"question":"שאלה","options":["תשובה נכונה","תשובה שגויה 1","תשובה שגויה 2","תשובה שגויה 3"],"correctAnswer":0,"explanation":"הסבר קצר"}
 
-חוקים:
-- options[0] תמיד התשובה הנכונה
-- כתוב תשובות שגויות הגיוניות על סמך הטקסט
-- אל תשתמש במרכאות כפולות בתוך הטקסטים`;
+הוראות מדויקות:
+- options[0] חייבת להיות התשובה הנכונה.
+- השתמש במרכאות יחידיות ('), אל תשתמש במרכאות כפולות.
+- כל ערך בטקסט צריך להיות קצר (עד 80 תווים).
+- ההסבר יכול להיות ריק אך יש לכלול מפתח explanation.
+- אל תוסיף טקסט לפני או אחרי ה-JSON.`;
     } else {
       // fill-blank / short-answer
       prompt = `קרא את הקטע הבא ויצור שאלת השלמה אחת בעברית.
@@ -257,7 +259,19 @@ ${chunk}
     if (!raw) return null;
 
     const parsed = extractJson(raw);
-    if (!parsed || !parsed.question) return null;
+    // Validate structure – must contain question, options array with at least 2 items and correctAnswer index
+    if (
+      !parsed ||
+      typeof parsed.question !== 'string' ||
+      !Array.isArray(parsed.options) ||
+      parsed.options.length < 2 ||
+      typeof parsed.correctAnswer !== 'number' ||
+      parsed.correctAnswer < 0 ||
+      parsed.correctAnswer >= parsed.options.length
+    ) {
+      // Fallback to local generation if AI response is malformed
+      return null;
+    }
 
     // Shuffle options so correct answer isn't always index 0
     let options: string[] | undefined;
@@ -449,13 +463,21 @@ ${chunk}
     const raw = await this.callProxy(prompt) ?? await this.callGemini(prompt);
     if (raw) {
       const parsed = extractJson(raw);
-      if (parsed && typeof parsed.isCorrect === 'boolean') {
-        return {
-          isCorrect: parsed.isCorrect,
-          feedback: parsed.feedback || '',
-        };
+      if (
+        parsed &&
+        typeof parsed.isCorrect === 'boolean' &&
+        typeof parsed.feedback === 'string'
+      ) {
+        return { isCorrect: parsed.isCorrect, feedback: parsed.feedback };
       }
     }
+    // Simple heuristic fallback – case‑insensitive contains check
+    const norm = (s: string) => s.trim().toLowerCase().replace(/[\'\"]/g, '');
+    const isCorrect =
+      norm(userAnswer).includes(norm(correctAnswer)) ||
+      norm(correctAnswer).includes(norm(userAnswer));
+    return { isCorrect, feedback: isCorrect ? 'תשובה נכונה!' : `התשובה הנכונה: ${correctAnswer}` };
+
 
     // Simple fallback: exact/partial match
     const norm = (s: string) => s.trim().toLowerCase().replace(/['"]/g, '');
