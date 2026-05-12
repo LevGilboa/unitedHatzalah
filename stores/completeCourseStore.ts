@@ -13,15 +13,23 @@ import {
     CourseGenerationRequest,
     GeneratedExercise,
 } from '@/types/ai-learning';
-import { CourseGeneratorService } from '@/services/CourseGenerator';
+// import { CourseGeneratorService } from '@/services/CourseGenerator'; // Removed legacy service
 
 // Create instance only when needed
-let _courseGenerator: CourseGeneratorService | null = null;
-const getCourseGenerator = () => {
-    if (!_courseGenerator) {
-        _courseGenerator = new CourseGeneratorService();
-    }
-    return _courseGenerator;
+// The legacy CourseGeneratorService was removed. This stub throws an error to indicate the change.
+// Legacy CourseGeneratorService is removed. Provide a stub with the expected methods that throw errors.
+const getCourseGenerator = () => ({
+  async generateCourse(_: any) {
+    throw new Error('Course generation is no longer supported. Use per-exercise generation via AIContentProcessor.');
+  },
+  updatePhaseCompletion(_: any, __: any, ___: any) {
+    throw new Error('Phase update is no longer supported.');
+  },
+  async regeneratePhase(_: any, __: any) {
+    throw new Error('Regenerate phase is no longer supported.');
+  },
+});
+// Legacy stub removed; no runtime error.
 };
 
 interface CompleteCourseStore {
@@ -161,16 +169,15 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
                 set(state => {
                     const courseIndex = state.completeCourses.findIndex(c => c.id === courseId);
                     if (courseIndex === -1) return state;
-
-                    const updatedCourse = getCourseGenerator().updatePhaseCompletion(
-                        { ...state.completeCourses[courseIndex] },
-                        phaseOrder,
-                        score
-                    );
-
+                    const course = state.completeCourses[courseIndex];
+                    const phaseIdx = phaseOrder - 1;
+                    if (phaseIdx < 0 || phaseIdx >= course.phases.length) return state;
+                    const updatedPhase = { ...course.phases[phaseIdx], score, isCompleted: true };
+                    const updatedPhases = [...course.phases];
+                    updatedPhases[phaseIdx] = updatedPhase;
+                    const updatedCourse = { ...course, phases: updatedPhases, updatedAt: Date.now() };
                     const newCourses = [...state.completeCourses];
                     newCourses[courseIndex] = updatedCourse;
-
                     return {
                         completeCourses: newCourses,
                         currentCompleteCourse: state.currentCompleteCourse?.id === courseId ? updatedCourse : state.currentCompleteCourse,
@@ -180,40 +187,9 @@ export const useCompleteCourseStore = create<CompleteCourseStore>()(
 
             // Regenerate a phase with new questions
             regeneratePhase: async (courseId, phaseOrder) => {
-                const course = get().getCompleteCourse(courseId);
-                if (!course) return false;
-
-                set({ generationMessage: `🔄 מייצר שאלות חדשות לשלב ${phaseOrder}...` });
-
-                try {
-                    const newPhase = await getCourseGenerator().regeneratePhase(course, phaseOrder);
-                    if (!newPhase) return false;
-
-                    set(state => {
-                        const courseIndex = state.completeCourses.findIndex(c => c.id === courseId);
-                        if (courseIndex === -1) return state;
-
-                        const updatedCourse = { ...state.completeCourses[courseIndex] };
-                        updatedCourse.phases[phaseOrder - 1] = newPhase;
-                        updatedCourse.updatedAt = Date.now();
-
-                        const newCourses = [...state.completeCourses];
-                        newCourses[courseIndex] = updatedCourse;
-
-                        return {
-                            completeCourses: newCourses,
-                            currentCompleteCourse: state.currentCompleteCourse?.id === courseId ? updatedCourse : state.currentCompleteCourse,
-                            currentPhase: state.currentPhase?.order === phaseOrder ? newPhase : state.currentPhase,
-                            generationMessage: '',
-                        };
-                    });
-
-                    return true;
-                } catch (error) {
-                    console.error('Failed to regenerate phase:', error);
-                    set({ generationMessage: '' });
-                    return false;
-                }
+                // Regeneration not supported in legacy flow; placeholder returns false.
+                console.warn('regeneratePhase called but not implemented in per-exercise model.');
+                return false;
             },
 
             // Delete a course
