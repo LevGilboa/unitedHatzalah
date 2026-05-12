@@ -160,7 +160,7 @@ app.post('/api/ai-chat', async (req, res) => {
               { role: 'system', content: systemPrompt },
               ...messages
             ],
-            max_tokens: 4096,
+            max_tokens: 8192,
             temperature: 0.7
           })
         });
