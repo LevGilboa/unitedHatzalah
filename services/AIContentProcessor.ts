@@ -1051,7 +1051,17 @@ ${previousQuestionsSection}
       let inString = false;
       let objStart = -1;
 
-      for (let i = 0; i < jsonString.length; i++) {
+      // Start parsing after the "exercises" array starts, to ignore the root { object
+      let startIdx = 0;
+      const exercisesKeyIdx = jsonString.indexOf('"exercises"');
+      if (exercisesKeyIdx !== -1) {
+        const arrayIdx = jsonString.indexOf('[', exercisesKeyIdx);
+        if (arrayIdx !== -1) {
+          startIdx = arrayIdx;
+        }
+      }
+
+      for (let i = startIdx; i < jsonString.length; i++) {
         const char = jsonString[i];
         const prevChar = i > 0 ? jsonString[i - 1] : '';
 
@@ -1063,13 +1073,13 @@ ${previousQuestionsSection}
         if (!inString) {
           if (char === '{') {
             if (braceCount === 0) {
-              objStart = i; // Start of a root-level object
+              objStart = i; // Start of an individual exercise object
             }
             braceCount++;
           } else if (char === '}') {
             braceCount--;
             if (braceCount === 0 && objStart !== -1) {
-              // We found a complete object!
+              // We found a complete exercise object!
               const objStr = jsonString.substring(objStart, i + 1);
               const exercise = this.parseSingleExercise(objStr);
               if (exercise) exercises.push(exercise);
